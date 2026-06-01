@@ -49,7 +49,7 @@ type HardState struct {
 	Commit   uint64
 }
 
-// Snapshot 保存已经压缩进状态机快照的日志边界和快照数据。
+// Snapshot 保存已经压缩进 state machine snapshot 的 log 边界和 snapshot data。
 type Snapshot struct {
 	Index uint64
 	Term  uint64
@@ -63,13 +63,13 @@ type PersistentState struct {
 	Snapshot  Snapshot
 }
 
-// Storage 负责保存 Raft 状态，替代 6.824 lab 中的内存 Persister。
+// Storage 负责保存 Raft state，替代 6.824 lab 中的内存 Persister。
 type Storage interface {
 	Load() (PersistentState, error)
 	Save(PersistentState) error
 }
 
-// Transport 负责节点间 RPC，替代 6.824 lab 中的 labrpc。
+// Transport 负责 peer 间 RPC，替代 6.824 lab 中的 labrpc。
 type Transport interface {
 	SendRequestVote(ctx context.Context, to MemberID, req *RequestVoteRequest) (*RequestVoteResponse, error)
 	SendAppendEntries(ctx context.Context, to MemberID, req *AppendEntriesRequest) (*AppendEntriesResponse, error)
@@ -116,7 +116,7 @@ type InstallSnapshotResponse struct {
 	Term uint64
 }
 
-// ApplyMsg 在 Raft peer 感知到新的 committed entry 后发送给上层状态机。
+// ApplyMsg 在 Raft peer 感知到新的 committed entry 后发送给上层 state machine。
 type ApplyMsg struct {
 	CommandValid bool
 	Command      []byte
