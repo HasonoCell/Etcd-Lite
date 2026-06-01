@@ -107,6 +107,7 @@ func (rf *Raft) ID() MemberID {
 	return rf.id
 }
 
+// Stop 停止当前 peer。所有长时间运行的 goroutine 都会观察 dead/stopCh 退出。
 func (rf *Raft) Stop() {
 	if rf.dead.CompareAndSwap(false, true) {
 		close(rf.stopCh)
@@ -116,6 +117,7 @@ func (rf *Raft) Stop() {
 	}
 }
 
+// Status 返回当前 term、leader、commit/applied index 等运行状态。
 func (rf *Raft) Status() Status {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -131,16 +133,20 @@ func (rf *Raft) Status() Status {
 	}
 }
 
+// Start 由上层服务调用，用来把一条新 command 放入 Raft 日志。
+// 如果当前 peer 不是 leader，则返回 isLeader=false。
 func (rf *Raft) Start(command []byte) (uint64, uint64, bool) {
 	rf.mu.Lock()
+	// 必须是 Leader 才处理 command。
 	if rf.state != StateLeader || rf.dead.Load() {
 		term := rf.currentTerm
 		rf.mu.Unlock()
 		return 0, term, false
 	}
 	entry := Entry{
-		Index:   rf.lastLogLocked().Index + 1,
-		Term:    rf.currentTerm,
+		Index: rf.lastLogLocked().Index + 1,
+		Term:  rf.currentTerm,
+		// command 不再像 lab 中那样明文存储，而是转换为字节数组。
 		Command: append([]byte(nil), command...),
 	}
 	rf.logs = append(rf.logs, entry)
@@ -154,6 +160,8 @@ func (rf *Raft) Start(command []byte) (uint64, uint64, bool) {
 	return entry.Index, term, true
 }
 
+// ReadIndex 用一次多数派 heartbeat 确认当前 leader 身份，然后返回可线性一致读取的 commit index。
+// ! ReadIndex 也是一种针对线性一致读的优化思路，不采用 lab 中的 ReadLog。
 func (rf *Raft) ReadIndex(ctx context.Context) (uint64, error) {
 	rf.mu.Lock()
 	if rf.state != StateLeader || rf.dead.Load() {
@@ -164,12 +172,14 @@ func (rf *Raft) ReadIndex(ctx context.Context) (uint64, error) {
 	term := rf.currentTerm
 	rf.mu.Unlock()
 
+	// 通过 confirmLeadership 确定处理读请求的 server 的 leader 地位。
 	if rf.confirmLeadership(ctx, term) {
 		return commit, nil
 	}
 	return 0, ErrNotLeader
 }
 
+// Snapshot 由上层状态机在创建快照后调用，表示 index 及之前的日志已经不再需要。
 func (rf *Raft) Snapshot(index uint64, data []byte) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -185,6 +195,7 @@ func (rf *Raft) Snapshot(index uint64, data []byte) {
 	_ = rf.persistLocked()
 }
 
+// RequestVote 处理候选人的投票请求。
 func (rf *Raft) RequestVote(req *RequestVoteRequest, resp *RequestVoteResponse) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -197,6 +208,7 @@ func (rf *Raft) RequestVote(req *RequestVoteRequest, resp *RequestVoteResponse) 
 		rf.becomeFollowerLocked(req.Term, NoMember)
 	}
 
+	// 候选人的日志必须至少和本机一样新，本机才可能投票。
 	last := rf.lastLogLocked()
 	upToDate := req.LastLogTerm > last.Term || (req.LastLogTerm == last.Term && req.LastLogIndex >= last.Index)
 	canVote := rf.votedFor == NoMember || rf.votedFor == req.CandidateID
@@ -209,6 +221,7 @@ func (rf *Raft) RequestVote(req *RequestVoteRequest, resp *RequestVoteResponse) 
 	resp.Term = rf.currentTerm
 }
 
+// AppendEntries 同时承担 leader heartbeat、日志复制、commit index 推进三件事。
 func (rf *Raft) AppendEntries(req *AppendEntriesRequest, resp *AppendEntriesResponse) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -225,6 +238,7 @@ func (rf *Raft) AppendEntries(req *AppendEntriesRequest, resp *AppendEntriesResp
 
 	first := rf.logs[0].Index
 	last := rf.lastLogLocked().Index
+	// PrevLogIndex 就是从 leader 传来的某 peer 的预期已匹配日志位置
 	if req.PrevLogIndex < first {
 		resp.ConflictIndex = first + 1
 		return
@@ -233,6 +247,7 @@ func (rf *Raft) AppendEntries(req *AppendEntriesRequest, resp *AppendEntriesResp
 		resp.ConflictIndex = last + 1
 		return
 	}
+	// 冲突逻辑：PrevLogIndex 上有日志但 term 不对时，返回冲突 term 的第一条位置。
 	if rf.termAtLocked(req.PrevLogIndex) != req.PrevLogTerm {
 		resp.ConflictTerm = rf.termAtLocked(req.PrevLogIndex)
 		idx := req.PrevLogIndex
@@ -243,6 +258,10 @@ func (rf *Raft) AppendEntries(req *AppendEntriesRequest, resp *AppendEntriesResp
 		return
 	}
 
+	// 如果 follower 没有这条日志，追加。
+	// 如果 follower 有同 index 但 term 不同，说明从这里开始是错误分支：
+	// 1. 截断 follower 从这个 index 开始的旧日志
+	// 2. 追加 leader 从这个 index 开始的日志
 	for i, entry := range req.Entries {
 		if entry.Index <= rf.lastLogLocked().Index && rf.termAtLocked(entry.Index) == entry.Term {
 			continue
@@ -251,6 +270,7 @@ func (rf *Raft) AppendEntries(req *AppendEntriesRequest, resp *AppendEntriesResp
 		rf.logs = append(cloneEntries(rf.logs[:cut]), cloneEntries(req.Entries[i:])...)
 		break
 	}
+	// 复制完后根据 leaderCommit 推进 follower 的提交进度。
 	if req.LeaderCommit > rf.commitIndex {
 		rf.commitIndex = min(req.LeaderCommit, rf.lastLogLocked().Index)
 		rf.applyCond.Signal()
@@ -260,6 +280,7 @@ func (rf *Raft) AppendEntries(req *AppendEntriesRequest, resp *AppendEntriesResp
 	_ = rf.persistLocked()
 }
 
+// InstallSnapshot 在 follower 日志落后到 leader 已经 compact 时安装快照。
 func (rf *Raft) InstallSnapshot(req *InstallSnapshotRequest, resp *InstallSnapshotResponse) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -278,6 +299,7 @@ func (rf *Raft) InstallSnapshot(req *InstallSnapshotRequest, resp *InstallSnapsh
 		return
 	}
 
+	// 如果快照边界之后的日志还能和 leader 对齐，就保留后续日志；否则全部丢弃。
 	if req.LastIncludedIndex < rf.lastLogLocked().Index && rf.termAtLocked(req.LastIncludedIndex) == req.LastIncludedTerm {
 		offset := req.LastIncludedIndex - rf.logs[0].Index
 		rf.logs = append([]Entry{{Index: req.LastIncludedIndex, Term: req.LastIncludedTerm}}, cloneEntries(rf.logs[offset+1:])...)
@@ -300,6 +322,7 @@ func (rf *Raft) InstallSnapshot(req *InstallSnapshotRequest, resp *InstallSnapsh
 	resp.Term = rf.currentTerm
 }
 
+// ticker 在选举超时后发起新一轮选举，leader 则周期性发送 heartbeat。
 func (rf *Raft) ticker() {
 	for {
 		select {
@@ -321,6 +344,7 @@ func (rf *Raft) ticker() {
 	}
 }
 
+// startElection 切换到 candidate，给自己投票，并向其他 peer 并发发送 RequestVote。
 func (rf *Raft) startElection() {
 	rf.mu.Lock()
 	if rf.dead.Load() {
@@ -339,6 +363,7 @@ func (rf *Raft) startElection() {
 	rf.mu.Unlock()
 
 	req := &RequestVoteRequest{Term: term, CandidateID: rf.id, LastLogIndex: last.Index, LastLogTerm: last.Term}
+	// 遍历 peer 发 RequestVote。
 	for _, peer := range rf.peers {
 		if peer == rf.id {
 			continue
@@ -361,8 +386,10 @@ func (rf *Raft) startElection() {
 			}
 			if resp.VoteGranted {
 				votes++
+				// quorum 返回当前多数派人数
 				if votes >= rf.quorum() {
 					rf.becomeLeaderLocked()
+					// 成为新 leader 后依旧走 AppendEntries 同步一遍日志。
 					go rf.broadcastAppendEntries()
 				}
 			}
@@ -370,23 +397,27 @@ func (rf *Raft) startElection() {
 	}
 }
 
+// broadcastAppendEntries 唤醒所有 follower 的复制流程（replicator 协程）。
 func (rf *Raft) broadcastAppendEntries() {
 	for _, peer := range rf.peers {
 		if peer == rf.id {
 			continue
 		}
-		go rf.replicate(peer)
+		go rf.replicator(peer)
 	}
 }
 
-func (rf *Raft) replicate(peer MemberID) {
+// replicator 对单个 follower 执行一轮日志复制；如果 follower 太落后则发送 snapshot。
+func (rf *Raft) replicator(peer MemberID) {
 	rf.mu.Lock()
 	if rf.state != StateLeader || rf.dead.Load() {
 		rf.mu.Unlock()
 		return
 	}
+	// leader 认为 peer 的预期位置
 	next := rf.nextIndex[peer]
 	first := rf.logs[0].Index
+	// 如果 follower 预期匹配的位置已经被 leader compact，走快照安装流程。
 	if next <= first {
 		req := &InstallSnapshotRequest{
 			Term:              rf.currentTerm,
@@ -438,9 +469,12 @@ func (rf *Raft) handleAppendEntriesResponse(peer MemberID, req *AppendEntriesReq
 		match := req.PrevLogIndex + uint64(len(req.Entries))
 		rf.matchIndex[peer] = match
 		rf.nextIndex[peer] = match + 1
+		// 开始提交。
 		rf.advanceCommitLocked()
 		return
 	}
+	// leader 针对日志冲突的处理逻辑：优先使用 follower 返回的 ConflictIndex 回退 nextIndex。
+	// ! ConflictIndex 也是一种优化思路，避免了 leader 一个个回退 index，避免不必要的网络请求。
 	if resp.ConflictIndex > 0 {
 		rf.nextIndex[peer] = resp.ConflictIndex
 	} else if rf.nextIndex[peer] > 1 {
@@ -462,6 +496,7 @@ func (rf *Raft) handleInstallSnapshotResponse(peer MemberID, req *InstallSnapsho
 	rf.nextIndex[peer] = req.LastIncludedIndex + 1
 }
 
+// confirmLeadership 通过一轮空 AppendEntries 确认当前 leader 仍能联系到多数派。
 func (rf *Raft) confirmLeadership(ctx context.Context, term uint64) bool {
 	var wg sync.WaitGroup
 	var oks atomic.Int32
@@ -498,6 +533,8 @@ func (rf *Raft) confirmLeadership(ctx context.Context, term uint64) bool {
 	return int(oks.Load()) >= rf.quorum()
 }
 
+// applier 由 applyCond 控制起停，将 committed entries 按顺序推给上层状态机。
+// 一组 committed entries 的区间在 lastApplied 和 commitIndex 之间（减去 first 索引重置开始位置）。
 func (rf *Raft) applier() {
 	for {
 		rf.mu.Lock()
@@ -514,6 +551,7 @@ func (rf *Raft) applier() {
 		entries := cloneEntries(rf.logs[start-first : end-first+1])
 		rf.mu.Unlock()
 
+		// 日志复制可能一次提交一批 entries，这里逐条发送 ApplyMsg。
 		for _, entry := range entries {
 			rf.applyCh <- ApplyMsg{
 				CommandValid: true,
@@ -563,22 +601,21 @@ func (rf *Raft) resetElectionTimerLocked() {
 	rf.electionTimer.Reset(randomized(rf.electionTimeout))
 }
 
+// advanceCommitLocked 是 leader 的提交逻辑：
+// 对所有 peers 的 matchIndex 从小到大排序，取多数派覆盖的位置作为候选 commit index。
 func (rf *Raft) advanceCommitLocked() {
-	for idx := rf.commitIndex + 1; idx <= rf.lastLogLocked().Index; idx++ {
-		if rf.termAtLocked(idx) != rf.currentTerm {
-			continue
-		}
-		count := 1
-		for _, peer := range rf.peers {
-			if peer != rf.id && rf.matchIndex[peer] >= idx {
-				count++
-			}
-		}
-		if count >= rf.quorum() {
-			rf.commitIndex = idx
-			_ = rf.persistLocked()
-			rf.applyCond.Signal()
-		}
+	// 将每个 peer 的 matchIndex 拿出来
+	matched := make([]uint64, 0, len(rf.peers))
+	for _, peer := range rf.peers {
+		matched = append(matched, rf.matchIndex[peer])
+	}
+	insertionSort(matched)
+
+	newCommitIndex := matched[len(matched)-rf.quorum()]
+	if newCommitIndex > rf.commitIndex && rf.termAtLocked(newCommitIndex) == rf.currentTerm {
+		rf.commitIndex = newCommitIndex
+		_ = rf.persistLocked()
+		rf.applyCond.Signal()
 	}
 }
 
@@ -601,6 +638,7 @@ func (rf *Raft) termAtLocked(index uint64) uint64 {
 	return rf.logs[index-first].Term
 }
 
+// persistLocked 保存 Raft 的持久状态，避免 crash 后丢失 term/vote/log/snapshot。
 func (rf *Raft) persistLocked() error {
 	return rf.storage.Save(PersistentState{
 		HardState: HardState{Term: rf.currentTerm, VotedFor: rf.votedFor, Commit: rf.commitIndex},
@@ -639,16 +677,10 @@ func randomized(base time.Duration) time.Duration {
 	return base + time.Duration(rand.Int63n(int64(base)))
 }
 
-func min(a, b uint64) uint64 {
-	if a < b {
-		return a
+func insertionSort(values []uint64) {
+	for i := 1; i < len(values); i++ {
+		for j := i; j > 0 && values[j] < values[j-1]; j-- {
+			values[j], values[j-1] = values[j-1], values[j]
+		}
 	}
-	return b
-}
-
-func max(a, b uint64) uint64 {
-	if a > b {
-		return a
-	}
-	return b
 }

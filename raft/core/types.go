@@ -42,29 +42,34 @@ type Entry struct {
 	Command []byte
 }
 
+// HardState 是 Raft crash 后必须恢复的核心状态。
 type HardState struct {
 	Term     uint64
 	VotedFor MemberID
 	Commit   uint64
 }
 
+// Snapshot 保存已经压缩进状态机快照的日志边界和快照数据。
 type Snapshot struct {
 	Index uint64
 	Term  uint64
 	Data  []byte
 }
 
+// PersistentState 是 Storage 一次性读写的持久化视图。
 type PersistentState struct {
 	HardState HardState
 	Entries   []Entry
 	Snapshot  Snapshot
 }
 
+// Storage 负责保存 Raft 状态，替代 6.824 lab 中的内存 Persister。
 type Storage interface {
 	Load() (PersistentState, error)
 	Save(PersistentState) error
 }
 
+// Transport 负责节点间 RPC，替代 6.824 lab 中的 labrpc。
 type Transport interface {
 	SendRequestVote(ctx context.Context, to MemberID, req *RequestVoteRequest) (*RequestVoteResponse, error)
 	SendAppendEntries(ctx context.Context, to MemberID, req *AppendEntriesRequest) (*AppendEntriesResponse, error)
@@ -111,6 +116,7 @@ type InstallSnapshotResponse struct {
 	Term uint64
 }
 
+// ApplyMsg 在 Raft peer 感知到新的 committed entry 后发送给上层状态机。
 type ApplyMsg struct {
 	CommandValid bool
 	Command      []byte
@@ -134,6 +140,7 @@ type Status struct {
 	SnapshotIndex uint64
 }
 
+// Config 是创建单个 Raft peer 所需的依赖和运行参数。
 type Config struct {
 	ID                MemberID
 	Peers             []MemberID
