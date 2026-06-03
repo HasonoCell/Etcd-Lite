@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package etcdlite.v1;
+
+option go_package = "github.com/HasonoCell/Etcd-Lite/api/etcdlitepb;etcdlitepb";
+
+service KV {
+  rpc Range(RangeRequest) returns (RangeResponse);
+  rpc Put(PutRequest) returns (PutResponse);
+  rpc DeleteRange(DeleteRangeRequest) returns (DeleteRangeResponse);
+}
+
+service Maintenance {
+  rpc Status(StatusRequest) returns (StatusResponse);
+}
+
+message ResponseHeader {
+  uint64 member_id = 1;
+  uint64 leader_id = 2;
+  uint64 term = 3;
+  uint64 raft_index = 4;
+  int64 revision = 5;
+  string error = 6;
+}
+
+message KeyValue {
+  bytes key = 1;
+  bytes value = 2;
+  int64 create_revision = 3;
+  int64 mod_revision = 4;
+  int64 version = 5;
+  int64 lease_id = 6;
+  bool tombstone = 7;
+}
+
+message RangeRequest {
+  bytes key = 1;
+  bytes end = 2;
+  int64 limit = 3;
+  int64 revision = 4;
+  bool serializable = 5;
+}
+
+message RangeResponse {
+  ResponseHeader header = 1;
+  repeated KeyValue kvs = 2;
+  int64 count = 3;
+}
+
+message PutRequest {
+  bytes key = 1;
+  bytes value = 2;
+  int64 lease_id = 3;
+  bool prev_kv = 4;
+  uint64 client_id = 5;
+  uint64 request_id = 6;
+}
+
+message PutResponse {
+  ResponseHeader header = 1;
+  KeyValue prev_kv = 2;
+}
+
+message DeleteRangeRequest {
+  bytes key = 1;
+  bytes end = 2;
+  bool prev_kv = 3;
+  uint64 client_id = 4;
+  uint64 request_id = 5;
+}
+
+message DeleteRangeResponse {
+  ResponseHeader header = 1;
+  int64 deleted = 2;
+  repeated KeyValue prev_kvs = 3;
+}
+
+message StatusRequest {}
+
+message StatusResponse {
+  ResponseHeader header = 1;
+  string state = 2;
+  uint64 commit_index = 3;
+  uint64 applied_index = 4;
+  uint64 last_log_index = 5;
+  uint64 snapshot_index = 6;
+}
