@@ -101,6 +101,94 @@ func TestStoreDeleteRangeUsesOneRevisionForMultipleKeys(t *testing.T) {
 	}
 }
 
+func TestStoreTxnPersistsCompareBranchAndHistory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "backend.db")
+	store := openStore(t, path)
+
+	if _, err := store.Put(mvcc.PutRequest{Key: []byte("/txn/key"), Value: []byte("v1"), LeaseID: 9}); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	result, err := store.Apply(mvcc.Command{
+		Kind: mvcc.CommandTxn,
+		Txn: &mvcc.TxnCommand{
+			Compare: []mvcc.Compare{{
+				Key:     []byte("/txn/key"),
+				Target:  mvcc.CompareLease,
+				Result:  mvcc.CompareEqual,
+				LeaseID: 9,
+			}},
+			Success: []mvcc.Op{
+				{Kind: mvcc.OpPut, Put: &mvcc.PutCommand{Key: []byte("/txn/a"), Value: []byte("a")}},
+				{Kind: mvcc.OpPut, Put: &mvcc.PutCommand{Key: []byte("/txn/b"), Value: []byte("b")}},
+			},
+			Failure: []mvcc.Op{{
+				Kind: mvcc.OpPut,
+				Put:  &mvcc.PutCommand{Key: []byte("/txn/failure"), Value: []byte("bad")},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Apply txn: %v", err)
+	}
+	if !result.Succeeded || result.Revision != 2 || len(result.Events) != 2 {
+		t.Fatalf("txn result = %+v", result)
+	}
+	for i, event := range result.Events {
+		if event.Revision.Main != 2 || event.Revision.Sub != int64(i) {
+			t.Fatalf("event[%d] revision = %+v", i, event.Revision)
+		}
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reopened := openStore(t, path)
+	defer reopened.Close()
+
+	current, err := reopened.Range(mvcc.RangeRequest{Key: []byte("/txn/"), End: mvcc.PrefixEnd([]byte("/txn/"))})
+	if err != nil {
+		t.Fatalf("Range current: %v", err)
+	}
+	if current.Revision != 2 || current.Count != 3 {
+		t.Fatalf("current range = %+v", current)
+	}
+	history, err := reopened.History(mvcc.HistoryRequest{FromRevision: 2, ToRevision: 2})
+	if err != nil {
+		t.Fatalf("History: %v", err)
+	}
+	if len(history.Events) != 2 {
+		t.Fatalf("history events = %d, want 2", len(history.Events))
+	}
+}
+
+func TestStoreTxnReadOnlyDoesNotAdvanceRevision(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "backend.db"))
+	defer store.Close()
+
+	put(t, store, "/readonly/key", "v1")
+	result, err := store.Apply(mvcc.Command{
+		Kind: mvcc.CommandTxn,
+		Txn: &mvcc.TxnCommand{
+			Compare: []mvcc.Compare{{
+				Key:     []byte("/missing"),
+				Target:  mvcc.CompareVersion,
+				Result:  mvcc.CompareEqual,
+				Version: 0,
+			}},
+			Success: []mvcc.Op{{
+				Kind:  mvcc.OpRange,
+				Range: &mvcc.RangeRequest{Key: []byte("/readonly/key")},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Apply read-only txn: %v", err)
+	}
+	if !result.Succeeded || result.Revision != 1 || store.CurrentRevision() != 1 || len(result.Events) != 0 {
+		t.Fatalf("read-only result = %+v current revision=%d", result, store.CurrentRevision())
+	}
+}
+
 func openStore(t *testing.T, path string) *Store {
 	t.Helper()
 	store, err := Open(path)

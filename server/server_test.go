@@ -80,6 +80,79 @@ func TestKVRequestsFollowLeaderHintAndUseReadIndex(t *testing.T) {
 	}
 }
 
+func TestKVTxnThroughLeaderHintAndReadOnlyTxn(t *testing.T) {
+	c := newTestCluster(t, []core.MemberID{1, 2, 3})
+	defer c.stop()
+
+	leader := c.waitLeader()
+	follower := c.pickFollower(leader)
+
+	put := c.put(follower, &etcdlitepb.PutRequest{
+		Key:       []byte("/m5/key"),
+		Value:     []byte("v1"),
+		ClientId:  300,
+		RequestId: 1,
+	})
+	if put.GetHeader().GetRevision() != 1 {
+		t.Fatalf("put revision = %d, want 1", put.GetHeader().GetRevision())
+	}
+
+	txn := c.txn(follower, &etcdlitepb.TxnRequest{
+		ClientId:  300,
+		RequestId: 2,
+		Compare: []*etcdlitepb.Compare{{
+			Key:    []byte("/m5/key"),
+			Target: etcdlitepb.CompareTarget_COMPARE_TARGET_VALUE,
+			Result: etcdlitepb.CompareResult_COMPARE_RESULT_EQUAL,
+			Value:  []byte("v1"),
+		}},
+		Success: []*etcdlitepb.RequestOp{
+			putOp("/m5/a", "a"),
+			putOp("/m5/b", "b"),
+		},
+		Failure: []*etcdlitepb.RequestOp{
+			putOp("/m5/failure", "bad"),
+		},
+	})
+	if !txn.GetSucceeded() || txn.GetHeader().GetRevision() != 2 || len(txn.GetResponses()) != 2 {
+		t.Fatalf("txn response = %+v", txn)
+	}
+
+	duplicate := c.txn(follower, &etcdlitepb.TxnRequest{
+		ClientId:  300,
+		RequestId: 2,
+		Compare: []*etcdlitepb.Compare{{
+			Key:    []byte("/m5/key"),
+			Target: etcdlitepb.CompareTarget_COMPARE_TARGET_VALUE,
+			Result: etcdlitepb.CompareResult_COMPARE_RESULT_EQUAL,
+			Value:  []byte("changed"),
+		}},
+		Success: []*etcdlitepb.RequestOp{putOp("/m5/ignored", "ignored")},
+	})
+	if duplicate.GetHeader().GetRevision() != txn.GetHeader().GetRevision() || len(duplicate.GetResponses()) != 2 {
+		t.Fatalf("duplicate txn = %+v, want cached revision %d", duplicate, txn.GetHeader().GetRevision())
+	}
+
+	readOnly := c.txn(follower, &etcdlitepb.TxnRequest{
+		ClientId:  300,
+		RequestId: 3,
+		Compare: []*etcdlitepb.Compare{{
+			Key:     []byte("/missing"),
+			Target:  etcdlitepb.CompareTarget_COMPARE_TARGET_VERSION,
+			Result:  etcdlitepb.CompareResult_COMPARE_RESULT_EQUAL,
+			Version: 0,
+		}},
+		Success: []*etcdlitepb.RequestOp{rangeOp("/m5/a")},
+	})
+	if !readOnly.GetSucceeded() || readOnly.GetHeader().GetRevision() != 2 || len(readOnly.GetResponses()) != 1 {
+		t.Fatalf("read-only txn = %+v", readOnly)
+	}
+	rangeResp := readOnly.GetResponses()[0].GetResponseRange()
+	if rangeResp == nil || rangeResp.GetCount() != 1 || string(rangeResp.GetKvs()[0].GetValue()) != "a" {
+		t.Fatalf("read-only txn range response = %+v", rangeResp)
+	}
+}
+
 func TestMaintenanceStatusReportsRaftAndMVCCState(t *testing.T) {
 	c := newTestCluster(t, []core.MemberID{1, 2, 3})
 	defer c.stop()
@@ -272,6 +345,26 @@ func (c *testCluster) deleteRange(start core.MemberID, req *etcdlitepb.DeleteRan
 	return nil
 }
 
+func (c *testCluster) txn(start core.MemberID, req *etcdlitepb.TxnRequest) *etcdlitepb.TxnResponse {
+	c.t.Helper()
+	current := start
+	for i := 0; i < 8; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		resp, err := c.kvClients[current].Txn(ctx, req)
+		cancel()
+		if err != nil {
+			c.t.Fatalf("Txn through %d: %v", current, err)
+		}
+		if resp.GetHeader().GetError() == "" {
+			return resp
+		}
+		current = c.nextAttempt(current, resp.GetHeader())
+		time.Sleep(20 * time.Millisecond)
+	}
+	c.t.Fatalf("Txn did not reach leader")
+	return nil
+}
+
 func (c *testCluster) nextAttempt(current core.MemberID, header *etcdlitepb.ResponseHeader) core.MemberID {
 	c.t.Helper()
 	if header.GetError() != errorNotLeader {
@@ -281,4 +374,23 @@ func (c *testCluster) nextAttempt(current core.MemberID, header *etcdlitepb.Resp
 		return leader
 	}
 	return c.waitLeader()
+}
+
+func putOp(key string, value string) *etcdlitepb.RequestOp {
+	return &etcdlitepb.RequestOp{
+		Request: &etcdlitepb.RequestOp_RequestPut{
+			RequestPut: &etcdlitepb.PutRequest{
+				Key:   []byte(key),
+				Value: []byte(value),
+			},
+		},
+	}
+}
+
+func rangeOp(key string) *etcdlitepb.RequestOp {
+	return &etcdlitepb.RequestOp{
+		Request: &etcdlitepb.RequestOp_RequestRange{
+			RequestRange: &etcdlitepb.RangeRequest{Key: []byte(key)},
+		},
+	}
 }

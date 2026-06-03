@@ -166,6 +166,141 @@ func TestApplyCommandAndFutureRevisionError(t *testing.T) {
 	}
 }
 
+func TestApplyTxnComparesAllTargetsAndSelectsBranch(t *testing.T) {
+	store := New()
+	put(t, store, "/txn/key", "v1")
+	if _, err := store.Put(mvcc.PutRequest{Key: []byte("/txn/key"), Value: []byte("v2"), LeaseID: 11}); err != nil {
+		t.Fatalf("Put v2: %v", err)
+	}
+
+	result, err := store.Apply(mvcc.Command{
+		Kind: mvcc.CommandTxn,
+		Txn: &mvcc.TxnCommand{
+			Compare: []mvcc.Compare{
+				{Key: []byte("/txn/key"), Target: mvcc.CompareVersion, Result: mvcc.CompareEqual, Version: 2},
+				{Key: []byte("/txn/key"), Target: mvcc.CompareCreateRevision, Result: mvcc.CompareEqual, CreateRevision: 1},
+				{Key: []byte("/txn/key"), Target: mvcc.CompareModRevision, Result: mvcc.CompareEqual, ModRevision: 2},
+				{Key: []byte("/txn/key"), Target: mvcc.CompareValue, Result: mvcc.CompareEqual, Value: []byte("v2")},
+				{Key: []byte("/txn/key"), Target: mvcc.CompareLease, Result: mvcc.CompareEqual, LeaseID: 11},
+			},
+			Success: []mvcc.Op{{
+				Kind: mvcc.OpPut,
+				Put:  &mvcc.PutCommand{Key: []byte("/txn/success"), Value: []byte("ok")},
+			}},
+			Failure: []mvcc.Op{{
+				Kind: mvcc.OpPut,
+				Put:  &mvcc.PutCommand{Key: []byte("/txn/failure"), Value: []byte("bad")},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Apply txn success: %v", err)
+	}
+	if !result.Succeeded || result.Revision != 3 || len(result.Events) != 1 {
+		t.Fatalf("txn success result = %+v", result)
+	}
+	if got := mustRange(t, store, mvcc.RangeRequest{Key: []byte("/txn/success")}); got.Count != 1 {
+		t.Fatalf("success branch range = %+v", got)
+	}
+	if got := mustRange(t, store, mvcc.RangeRequest{Key: []byte("/txn/failure")}); got.Count != 0 {
+		t.Fatalf("failure branch range = %+v", got)
+	}
+
+	failed, err := store.Apply(mvcc.Command{
+		Kind: mvcc.CommandTxn,
+		Txn: &mvcc.TxnCommand{
+			Compare: []mvcc.Compare{{
+				Key:    []byte("/txn/key"),
+				Target: mvcc.CompareValue,
+				Result: mvcc.CompareEqual,
+				Value:  []byte("not-v2"),
+			}},
+			Success: []mvcc.Op{{
+				Kind: mvcc.OpPut,
+				Put:  &mvcc.PutCommand{Key: []byte("/txn/should-not-exist"), Value: []byte("bad")},
+			}},
+			Failure: []mvcc.Op{{
+				Kind: mvcc.OpPut,
+				Put:  &mvcc.PutCommand{Key: []byte("/txn/failure"), Value: []byte("ok")},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Apply txn failure: %v", err)
+	}
+	if failed.Succeeded || failed.Revision != 4 || len(failed.Events) != 1 {
+		t.Fatalf("txn failure result = %+v", failed)
+	}
+	if got := mustRange(t, store, mvcc.RangeRequest{Key: []byte("/txn/failure")}); got.Count != 1 || string(got.KVs[0].Value) != "ok" {
+		t.Fatalf("failure branch current range = %+v", got)
+	}
+}
+
+func TestApplyTxnMultipleWritesShareOneMainRevision(t *testing.T) {
+	store := New()
+	put(t, store, "/old", "old")
+
+	result, err := store.Apply(mvcc.Command{
+		Kind: mvcc.CommandTxn,
+		Txn: &mvcc.TxnCommand{
+			Success: []mvcc.Op{
+				{Kind: mvcc.OpPut, Put: &mvcc.PutCommand{Key: []byte("/app/a"), Value: []byte("a")}},
+				{Kind: mvcc.OpPut, Put: &mvcc.PutCommand{Key: []byte("/app/b"), Value: []byte("b")}},
+				{Kind: mvcc.OpDeleteRange, DeleteRange: &mvcc.DeleteRangeCommand{Key: []byte("/old"), PrevKV: true}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Apply txn writes: %v", err)
+	}
+	if !result.Succeeded || result.Revision != 2 || len(result.Events) != 3 {
+		t.Fatalf("txn writes result = %+v", result)
+	}
+	for i, event := range result.Events {
+		if event.Revision.Main != 2 || event.Revision.Sub != int64(i) {
+			t.Fatalf("event[%d] revision = %+v, want main 2 sub %d", i, event.Revision, i)
+		}
+	}
+	app := mustRange(t, store, mvcc.RangeRequest{Key: []byte("/app/"), End: mvcc.PrefixEnd([]byte("/app/"))})
+	if app.Count != 2 || app.KVs[0].ModRevision != 2 || app.KVs[1].ModRevision != 2 {
+		t.Fatalf("app range = %+v", app)
+	}
+	old := mustRange(t, store, mvcc.RangeRequest{Key: []byte("/old")})
+	if old.Count != 0 {
+		t.Fatalf("old range = %+v, want deleted", old)
+	}
+}
+
+func TestApplyTxnReadOnlyDoesNotAdvanceRevision(t *testing.T) {
+	store := New()
+	put(t, store, "/readonly/key", "v1")
+
+	result, err := store.Apply(mvcc.Command{
+		Kind: mvcc.CommandTxn,
+		Txn: &mvcc.TxnCommand{
+			Compare: []mvcc.Compare{{
+				Key:     []byte("/missing"),
+				Target:  mvcc.CompareVersion,
+				Result:  mvcc.CompareEqual,
+				Version: 0,
+			}},
+			Success: []mvcc.Op{{
+				Kind:  mvcc.OpRange,
+				Range: &mvcc.RangeRequest{Key: []byte("/readonly/key")},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Apply read-only txn: %v", err)
+	}
+	if !result.Succeeded || result.Revision != 1 || store.CurrentRevision() != 1 || len(result.Events) != 0 {
+		t.Fatalf("read-only txn result = %+v current revision=%d", result, store.CurrentRevision())
+	}
+	if len(result.Responses) != 1 || result.Responses[0].Range == nil || result.Responses[0].Range.Count != 1 {
+		t.Fatalf("read-only txn responses = %+v", result.Responses)
+	}
+}
+
 func put(t *testing.T, store *Store, key string, value string) {
 	t.Helper()
 	if _, err := store.Put(mvcc.PutRequest{Key: []byte(key), Value: []byte(value)}); err != nil {

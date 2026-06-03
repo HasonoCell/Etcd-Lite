@@ -250,6 +250,27 @@ func (s *Server) DeleteRange(ctx context.Context, req *etcdlitepb.DeleteRangeReq
 	}, nil
 }
 
+// txn 写请求，compare 和 success/failure branch 都通过 Raft log 达成全序一致。
+func (s *Server) Txn(ctx context.Context, req *etcdlitepb.TxnRequest) (*etcdlitepb.TxnResponse, error) {
+	ctx, cancel := s.withRequestTimeout(ctx)
+	defer cancel()
+
+	command, err := txnRequestToCommand(req)
+	if err != nil {
+		return &etcdlitepb.TxnResponse{Header: s.errorHeader(errorString(err), 0)}, nil
+	}
+
+	result, err := s.submit(ctx, command)
+	if err != nil {
+		return &etcdlitepb.TxnResponse{Header: s.errorHeader(errorString(err), 0)}, nil
+	}
+	return &etcdlitepb.TxnResponse{
+		Header:    s.header(result.result.Revision, result.index, ""),
+		Succeeded: result.result.Succeeded,
+		Responses: s.opResponsesToProto(result.result.Responses, result.result.Revision, result.index),
+	}, nil
+}
+
 func (s *Server) Status(context.Context, *etcdlitepb.StatusRequest) (*etcdlitepb.StatusResponse, error) {
 	status := s.raft.Status()
 	return &etcdlitepb.StatusResponse{
@@ -503,6 +524,197 @@ func keyValueToProto(kv mvcc.KeyValue) *etcdlitepb.KeyValue {
 		Version:        kv.Version,
 		LeaseId:        kv.LeaseID,
 		Tombstone:      kv.Tombstone,
+	}
+}
+
+// 将一条 txn command 中的 compare，success 和 failure 拆出来
+func txnRequestToCommand(req *etcdlitepb.TxnRequest) (mvcc.Command, error) {
+	compare, err := comparesFromProto(req.GetCompare())
+	if err != nil {
+		return mvcc.Command{}, err
+	}
+	success, err := requestOpsFromProto(req.GetSuccess())
+	if err != nil {
+		return mvcc.Command{}, err
+	}
+	failure, err := requestOpsFromProto(req.GetFailure())
+	if err != nil {
+		return mvcc.Command{}, err
+	}
+
+	command := mvcc.Command{
+		ID:   mvcc.RequestID{ClientID: req.GetClientId(), RequestID: req.GetRequestId()},
+		Kind: mvcc.CommandTxn,
+		Txn: &mvcc.TxnCommand{
+			Compare: compare,
+			Success: success,
+			Failure: failure,
+		},
+	}
+	return command, command.Validate()
+}
+
+func comparesFromProto(compares []*etcdlitepb.Compare) ([]mvcc.Compare, error) {
+	out := make([]mvcc.Compare, 0, len(compares))
+	for _, compare := range compares {
+		target, err := compareTargetFromProto(compare.GetTarget())
+		if err != nil {
+			return nil, err
+		}
+		result, err := compareResultFromProto(compare.GetResult())
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, mvcc.Compare{
+			Key:            compare.GetKey(),
+			Target:         target,
+			Result:         result,
+			Version:        compare.GetVersion(),
+			CreateRevision: compare.GetCreateRevision(),
+			ModRevision:    compare.GetModRevision(),
+			Value:          compare.GetValue(),
+			LeaseID:        compare.GetLeaseId(),
+		})
+	}
+	return out, nil
+}
+
+func compareTargetFromProto(target etcdlitepb.CompareTarget) (mvcc.CompareTarget, error) {
+	switch target {
+	case etcdlitepb.CompareTarget_COMPARE_TARGET_VERSION:
+		return mvcc.CompareVersion, nil
+	case etcdlitepb.CompareTarget_COMPARE_TARGET_CREATE_REVISION:
+		return mvcc.CompareCreateRevision, nil
+	case etcdlitepb.CompareTarget_COMPARE_TARGET_MOD_REVISION:
+		return mvcc.CompareModRevision, nil
+	case etcdlitepb.CompareTarget_COMPARE_TARGET_VALUE:
+		return mvcc.CompareValue, nil
+	case etcdlitepb.CompareTarget_COMPARE_TARGET_LEASE:
+		return mvcc.CompareLease, nil
+	default:
+		return "", mvcc.ErrInvalidCommand
+	}
+}
+
+func compareResultFromProto(result etcdlitepb.CompareResult) (mvcc.CompareResult, error) {
+	switch result {
+	case etcdlitepb.CompareResult_COMPARE_RESULT_EQUAL:
+		return mvcc.CompareEqual, nil
+	case etcdlitepb.CompareResult_COMPARE_RESULT_NOT_EQUAL:
+		return mvcc.CompareNotEqual, nil
+	case etcdlitepb.CompareResult_COMPARE_RESULT_GREATER:
+		return mvcc.CompareGreater, nil
+	case etcdlitepb.CompareResult_COMPARE_RESULT_LESS:
+		return mvcc.CompareLess, nil
+	default:
+		return "", mvcc.ErrInvalidCommand
+	}
+}
+
+func requestOpsFromProto(ops []*etcdlitepb.RequestOp) ([]mvcc.Op, error) {
+	out := make([]mvcc.Op, 0, len(ops))
+	for _, op := range ops {
+		converted, err := requestOpFromProto(op)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, converted)
+	}
+	return out, nil
+}
+
+func requestOpFromProto(op *etcdlitepb.RequestOp) (mvcc.Op, error) {
+	switch request := op.GetRequest().(type) {
+	case *etcdlitepb.RequestOp_RequestRange:
+		req := request.RequestRange
+		return mvcc.Op{
+			Kind: mvcc.OpRange,
+			Range: &mvcc.RangeRequest{
+				Key:      req.GetKey(),
+				End:      req.GetEnd(),
+				Limit:    req.GetLimit(),
+				Revision: req.GetRevision(),
+			},
+		}, nil
+	case *etcdlitepb.RequestOp_RequestPut:
+		req := request.RequestPut
+		return mvcc.Op{
+			Kind: mvcc.OpPut,
+			Put: &mvcc.PutCommand{
+				Key:     req.GetKey(),
+				Value:   req.GetValue(),
+				LeaseID: req.GetLeaseId(),
+				PrevKV:  req.GetPrevKv(),
+			},
+		}, nil
+	case *etcdlitepb.RequestOp_RequestDeleteRange:
+		req := request.RequestDeleteRange
+		return mvcc.Op{
+			Kind: mvcc.OpDeleteRange,
+			DeleteRange: &mvcc.DeleteRangeCommand{
+				Key:    req.GetKey(),
+				End:    req.GetEnd(),
+				PrevKV: req.GetPrevKv(),
+			},
+		}, nil
+	default:
+		return mvcc.Op{}, mvcc.ErrInvalidCommand
+	}
+}
+
+func (s *Server) opResponsesToProto(responses []mvcc.OpResponse, revision int64, raftIndex uint64) []*etcdlitepb.ResponseOp {
+	out := make([]*etcdlitepb.ResponseOp, 0, len(responses))
+	for _, response := range responses {
+		out = append(out, s.opResponseToProto(response, revision, raftIndex))
+	}
+	return out
+}
+
+func (s *Server) opResponseToProto(response mvcc.OpResponse, revision int64, raftIndex uint64) *etcdlitepb.ResponseOp {
+	switch response.Kind {
+	case mvcc.OpRange:
+		rangeResp := response.Range
+		if rangeResp == nil {
+			return &etcdlitepb.ResponseOp{}
+		}
+		return &etcdlitepb.ResponseOp{
+			Response: &etcdlitepb.ResponseOp_ResponseRange{
+				ResponseRange: &etcdlitepb.RangeResponse{
+					Header: s.header(revision, raftIndex, ""),
+					Kvs:    keyValuesToProto(rangeResp.KVs),
+					Count:  rangeResp.Count,
+				},
+			},
+		}
+	case mvcc.OpPut:
+		putResp := response.Put
+		if putResp == nil {
+			return &etcdlitepb.ResponseOp{}
+		}
+		return &etcdlitepb.ResponseOp{
+			Response: &etcdlitepb.ResponseOp_ResponsePut{
+				ResponsePut: &etcdlitepb.PutResponse{
+					Header: s.header(revision, raftIndex, ""),
+					PrevKv: keyValuePtrToProto(putResp.PrevKV),
+				},
+			},
+		}
+	case mvcc.OpDeleteRange:
+		delResp := response.DeleteRange
+		if delResp == nil {
+			return &etcdlitepb.ResponseOp{}
+		}
+		return &etcdlitepb.ResponseOp{
+			Response: &etcdlitepb.ResponseOp_ResponseDeleteRange{
+				ResponseDeleteRange: &etcdlitepb.DeleteRangeResponse{
+					Header:  s.header(revision, raftIndex, ""),
+					Deleted: delResp.Deleted,
+					PrevKvs: keyValuesToProto(delResp.PrevKVs),
+				},
+			},
+		}
+	default:
+		return &etcdlitepb.ResponseOp{}
 	}
 }
 

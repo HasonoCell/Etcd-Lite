@@ -262,7 +262,7 @@ func (s *Store) History(req mvcc.HistoryRequest) (mvcc.HistoryResponse, error) {
 }
 
 // Apply 将已经 committed 的内部 Command 应用到 bbolt-backed MVCC Store。
-// Put/DeleteRange 会复用对应的 transactional method；Txn 语义留到 M5。
+// Txn 会在一个 db.Update 中完成 compare、branch ops、history 写入和 revision 推进。
 func (s *Store) Apply(command mvcc.Command) (mvcc.ApplyResult, error) {
 	if err := command.Validate(); err != nil {
 		return mvcc.ApplyResult{Succeeded: false, Err: err}, err
@@ -300,12 +300,62 @@ func (s *Store) Apply(command mvcc.Command) (mvcc.ApplyResult, error) {
 			Events:    mvcc.CloneEvents(resp.Events),
 		}, nil
 	case mvcc.CommandTxn:
-		err := mvcc.ErrUnsupportedCommand
-		return mvcc.ApplyResult{Succeeded: false, Err: err}, err
+		return s.applyTxn(*command.Txn)
 	default:
 		err := mvcc.ErrInvalidCommand
 		return mvcc.ApplyResult{Succeeded: false, Err: err}, err
 	}
+}
+
+func (s *Store) applyTxn(txn mvcc.TxnCommand) (mvcc.ApplyResult, error) {
+	var result mvcc.ApplyResult
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		currentView, err := currentView(tx)
+		if err != nil {
+			return err
+		}
+
+		execution, err := mvcc.ExecuteTxn(currentView, currentRevision(tx), txn)
+		if err != nil {
+			return err
+		}
+		if len(execution.Events) > 0 {
+			current := tx.Bucket(currentBucket)
+			history := tx.Bucket(historyBucket)
+			for _, event := range execution.Events {
+				switch event.Type {
+				case mvcc.EventPut:
+					if err := putJSON(current, event.KV.Key, event.KV); err != nil {
+						return err
+					}
+				case mvcc.EventDelete:
+					if err := current.Delete(event.KV.Key); err != nil {
+						return err
+					}
+				default:
+					return mvcc.ErrInvalidCommand
+				}
+				if err := putJSON(history, revisionKeyBytes(event.Revision), event); err != nil {
+					return err
+				}
+			}
+			if err := setCurrentRevision(tx, execution.Revision); err != nil {
+				return err
+			}
+		}
+
+		result = mvcc.ApplyResult{
+			Revision:  execution.Revision,
+			Succeeded: execution.Succeeded,
+			Responses: execution.Responses,
+			Events:    mvcc.CloneEvents(execution.Events),
+		}
+		return nil
+	})
+	if err != nil {
+		return mvcc.ApplyResult{Succeeded: false, Err: err}, err
+	}
+	return result, nil
 }
 
 // init 创建 Store 需要的逻辑 buckets，重复调用保持 idempotent。
@@ -387,6 +437,20 @@ func currentRange(tx *bolt.Tx, key []byte, end []byte) ([]mvcc.KeyValue, error) 
 		kvs = append(kvs, mvcc.CloneKeyValue(kv))
 	}
 	return kvs, nil
+}
+
+// currentView 读取完整 current_kv bucket，供 Txn 在 working view 中做原子修改。
+func currentView(tx *bolt.Tx) (map[string]mvcc.KeyValue, error) {
+	view := make(map[string]mvcc.KeyValue)
+	cursor := tx.Bucket(currentBucket).Cursor()
+	for key, value := cursor.First(); key != nil; key, value = cursor.Next() {
+		var kv mvcc.KeyValue
+		if err := decodeJSON(value, &kv); err != nil {
+			return nil, err
+		}
+		view[string(key)] = mvcc.CloneKeyValue(kv)
+	}
+	return view, nil
 }
 
 // viewAt 通过 replay history bucket 还原指定 revision 的 point-in-time view。

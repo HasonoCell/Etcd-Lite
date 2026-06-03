@@ -8,6 +8,7 @@ service KV {
   rpc Range(RangeRequest) returns (RangeResponse);
   rpc Put(PutRequest) returns (PutResponse);
   rpc DeleteRange(DeleteRangeRequest) returns (DeleteRangeResponse);
+  rpc Txn(TxnRequest) returns (TxnResponse);
 }
 
 service Maintenance {
@@ -73,6 +74,64 @@ message DeleteRangeResponse {
   ResponseHeader header = 1;
   int64 deleted = 2;
   repeated KeyValue prev_kvs = 3;
+}
+
+enum CompareTarget {
+  COMPARE_TARGET_UNSPECIFIED = 0;
+  COMPARE_TARGET_VERSION = 1;
+  COMPARE_TARGET_CREATE_REVISION = 2;
+  COMPARE_TARGET_MOD_REVISION = 3;
+  COMPARE_TARGET_VALUE = 4;
+  COMPARE_TARGET_LEASE = 5;
+}
+
+enum CompareResult {
+  COMPARE_RESULT_UNSPECIFIED = 0;
+  COMPARE_RESULT_EQUAL = 1;
+  COMPARE_RESULT_NOT_EQUAL = 2;
+  COMPARE_RESULT_GREATER = 3;
+  COMPARE_RESULT_LESS = 4;
+}
+
+message Compare {
+  bytes key = 1;
+  CompareTarget target = 2;
+  CompareResult result = 3;
+  int64 version = 4;
+  int64 create_revision = 5;
+  int64 mod_revision = 6;
+  bytes value = 7;
+  int64 lease_id = 8;
+}
+
+message RequestOp {
+  oneof request {
+    RangeRequest request_range = 1;
+    PutRequest request_put = 2;
+    DeleteRangeRequest request_delete_range = 3;
+  }
+}
+
+message ResponseOp {
+  oneof response {
+    RangeResponse response_range = 1;
+    PutResponse response_put = 2;
+    DeleteRangeResponse response_delete_range = 3;
+  }
+}
+
+message TxnRequest {
+  repeated Compare compare = 1;
+  repeated RequestOp success = 2;
+  repeated RequestOp failure = 3;
+  uint64 client_id = 4;
+  uint64 request_id = 5;
+}
+
+message TxnResponse {
+  ResponseHeader header = 1;
+  bool succeeded = 2;
+  repeated ResponseOp responses = 3;
 }
 
 message StatusRequest {}

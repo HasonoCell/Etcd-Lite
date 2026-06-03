@@ -21,6 +21,119 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type CompareTarget int32
+
+const (
+	CompareTarget_COMPARE_TARGET_UNSPECIFIED     CompareTarget = 0
+	CompareTarget_COMPARE_TARGET_VERSION         CompareTarget = 1
+	CompareTarget_COMPARE_TARGET_CREATE_REVISION CompareTarget = 2
+	CompareTarget_COMPARE_TARGET_MOD_REVISION    CompareTarget = 3
+	CompareTarget_COMPARE_TARGET_VALUE           CompareTarget = 4
+	CompareTarget_COMPARE_TARGET_LEASE           CompareTarget = 5
+)
+
+// Enum value maps for CompareTarget.
+var (
+	CompareTarget_name = map[int32]string{
+		0: "COMPARE_TARGET_UNSPECIFIED",
+		1: "COMPARE_TARGET_VERSION",
+		2: "COMPARE_TARGET_CREATE_REVISION",
+		3: "COMPARE_TARGET_MOD_REVISION",
+		4: "COMPARE_TARGET_VALUE",
+		5: "COMPARE_TARGET_LEASE",
+	}
+	CompareTarget_value = map[string]int32{
+		"COMPARE_TARGET_UNSPECIFIED":     0,
+		"COMPARE_TARGET_VERSION":         1,
+		"COMPARE_TARGET_CREATE_REVISION": 2,
+		"COMPARE_TARGET_MOD_REVISION":    3,
+		"COMPARE_TARGET_VALUE":           4,
+		"COMPARE_TARGET_LEASE":           5,
+	}
+)
+
+func (x CompareTarget) Enum() *CompareTarget {
+	p := new(CompareTarget)
+	*p = x
+	return p
+}
+
+func (x CompareTarget) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CompareTarget) Descriptor() protoreflect.EnumDescriptor {
+	return file_etcdlite_proto_enumTypes[0].Descriptor()
+}
+
+func (CompareTarget) Type() protoreflect.EnumType {
+	return &file_etcdlite_proto_enumTypes[0]
+}
+
+func (x CompareTarget) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CompareTarget.Descriptor instead.
+func (CompareTarget) EnumDescriptor() ([]byte, []int) {
+	return file_etcdlite_proto_rawDescGZIP(), []int{0}
+}
+
+type CompareResult int32
+
+const (
+	CompareResult_COMPARE_RESULT_UNSPECIFIED CompareResult = 0
+	CompareResult_COMPARE_RESULT_EQUAL       CompareResult = 1
+	CompareResult_COMPARE_RESULT_NOT_EQUAL   CompareResult = 2
+	CompareResult_COMPARE_RESULT_GREATER     CompareResult = 3
+	CompareResult_COMPARE_RESULT_LESS        CompareResult = 4
+)
+
+// Enum value maps for CompareResult.
+var (
+	CompareResult_name = map[int32]string{
+		0: "COMPARE_RESULT_UNSPECIFIED",
+		1: "COMPARE_RESULT_EQUAL",
+		2: "COMPARE_RESULT_NOT_EQUAL",
+		3: "COMPARE_RESULT_GREATER",
+		4: "COMPARE_RESULT_LESS",
+	}
+	CompareResult_value = map[string]int32{
+		"COMPARE_RESULT_UNSPECIFIED": 0,
+		"COMPARE_RESULT_EQUAL":       1,
+		"COMPARE_RESULT_NOT_EQUAL":   2,
+		"COMPARE_RESULT_GREATER":     3,
+		"COMPARE_RESULT_LESS":        4,
+	}
+)
+
+func (x CompareResult) Enum() *CompareResult {
+	p := new(CompareResult)
+	*p = x
+	return p
+}
+
+func (x CompareResult) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CompareResult) Descriptor() protoreflect.EnumDescriptor {
+	return file_etcdlite_proto_enumTypes[1].Descriptor()
+}
+
+func (CompareResult) Type() protoreflect.EnumType {
+	return &file_etcdlite_proto_enumTypes[1]
+}
+
+func (x CompareResult) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CompareResult.Descriptor instead.
+func (CompareResult) EnumDescriptor() ([]byte, []int) {
+	return file_etcdlite_proto_rawDescGZIP(), []int{1}
+}
+
 type ResponseHeader struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	MemberId      uint64                 `protobuf:"varint,1,opt,name=member_id,json=memberId,proto3" json:"member_id,omitempty"`
@@ -605,6 +718,438 @@ func (x *DeleteRangeResponse) GetPrevKvs() []*KeyValue {
 	return nil
 }
 
+type Compare struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Key            []byte                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Target         CompareTarget          `protobuf:"varint,2,opt,name=target,proto3,enum=etcdlite.v1.CompareTarget" json:"target,omitempty"`
+	Result         CompareResult          `protobuf:"varint,3,opt,name=result,proto3,enum=etcdlite.v1.CompareResult" json:"result,omitempty"`
+	Version        int64                  `protobuf:"varint,4,opt,name=version,proto3" json:"version,omitempty"`
+	CreateRevision int64                  `protobuf:"varint,5,opt,name=create_revision,json=createRevision,proto3" json:"create_revision,omitempty"`
+	ModRevision    int64                  `protobuf:"varint,6,opt,name=mod_revision,json=modRevision,proto3" json:"mod_revision,omitempty"`
+	Value          []byte                 `protobuf:"bytes,7,opt,name=value,proto3" json:"value,omitempty"`
+	LeaseId        int64                  `protobuf:"varint,8,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *Compare) Reset() {
+	*x = Compare{}
+	mi := &file_etcdlite_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Compare) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Compare) ProtoMessage() {}
+
+func (x *Compare) ProtoReflect() protoreflect.Message {
+	mi := &file_etcdlite_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Compare.ProtoReflect.Descriptor instead.
+func (*Compare) Descriptor() ([]byte, []int) {
+	return file_etcdlite_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *Compare) GetKey() []byte {
+	if x != nil {
+		return x.Key
+	}
+	return nil
+}
+
+func (x *Compare) GetTarget() CompareTarget {
+	if x != nil {
+		return x.Target
+	}
+	return CompareTarget_COMPARE_TARGET_UNSPECIFIED
+}
+
+func (x *Compare) GetResult() CompareResult {
+	if x != nil {
+		return x.Result
+	}
+	return CompareResult_COMPARE_RESULT_UNSPECIFIED
+}
+
+func (x *Compare) GetVersion() int64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *Compare) GetCreateRevision() int64 {
+	if x != nil {
+		return x.CreateRevision
+	}
+	return 0
+}
+
+func (x *Compare) GetModRevision() int64 {
+	if x != nil {
+		return x.ModRevision
+	}
+	return 0
+}
+
+func (x *Compare) GetValue() []byte {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+func (x *Compare) GetLeaseId() int64 {
+	if x != nil {
+		return x.LeaseId
+	}
+	return 0
+}
+
+type RequestOp struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Request:
+	//
+	//	*RequestOp_RequestRange
+	//	*RequestOp_RequestPut
+	//	*RequestOp_RequestDeleteRange
+	Request       isRequestOp_Request `protobuf_oneof:"request"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RequestOp) Reset() {
+	*x = RequestOp{}
+	mi := &file_etcdlite_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RequestOp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RequestOp) ProtoMessage() {}
+
+func (x *RequestOp) ProtoReflect() protoreflect.Message {
+	mi := &file_etcdlite_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RequestOp.ProtoReflect.Descriptor instead.
+func (*RequestOp) Descriptor() ([]byte, []int) {
+	return file_etcdlite_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *RequestOp) GetRequest() isRequestOp_Request {
+	if x != nil {
+		return x.Request
+	}
+	return nil
+}
+
+func (x *RequestOp) GetRequestRange() *RangeRequest {
+	if x != nil {
+		if x, ok := x.Request.(*RequestOp_RequestRange); ok {
+			return x.RequestRange
+		}
+	}
+	return nil
+}
+
+func (x *RequestOp) GetRequestPut() *PutRequest {
+	if x != nil {
+		if x, ok := x.Request.(*RequestOp_RequestPut); ok {
+			return x.RequestPut
+		}
+	}
+	return nil
+}
+
+func (x *RequestOp) GetRequestDeleteRange() *DeleteRangeRequest {
+	if x != nil {
+		if x, ok := x.Request.(*RequestOp_RequestDeleteRange); ok {
+			return x.RequestDeleteRange
+		}
+	}
+	return nil
+}
+
+type isRequestOp_Request interface {
+	isRequestOp_Request()
+}
+
+type RequestOp_RequestRange struct {
+	RequestRange *RangeRequest `protobuf:"bytes,1,opt,name=request_range,json=requestRange,proto3,oneof"`
+}
+
+type RequestOp_RequestPut struct {
+	RequestPut *PutRequest `protobuf:"bytes,2,opt,name=request_put,json=requestPut,proto3,oneof"`
+}
+
+type RequestOp_RequestDeleteRange struct {
+	RequestDeleteRange *DeleteRangeRequest `protobuf:"bytes,3,opt,name=request_delete_range,json=requestDeleteRange,proto3,oneof"`
+}
+
+func (*RequestOp_RequestRange) isRequestOp_Request() {}
+
+func (*RequestOp_RequestPut) isRequestOp_Request() {}
+
+func (*RequestOp_RequestDeleteRange) isRequestOp_Request() {}
+
+type ResponseOp struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Response:
+	//
+	//	*ResponseOp_ResponseRange
+	//	*ResponseOp_ResponsePut
+	//	*ResponseOp_ResponseDeleteRange
+	Response      isResponseOp_Response `protobuf_oneof:"response"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResponseOp) Reset() {
+	*x = ResponseOp{}
+	mi := &file_etcdlite_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResponseOp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResponseOp) ProtoMessage() {}
+
+func (x *ResponseOp) ProtoReflect() protoreflect.Message {
+	mi := &file_etcdlite_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResponseOp.ProtoReflect.Descriptor instead.
+func (*ResponseOp) Descriptor() ([]byte, []int) {
+	return file_etcdlite_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ResponseOp) GetResponse() isResponseOp_Response {
+	if x != nil {
+		return x.Response
+	}
+	return nil
+}
+
+func (x *ResponseOp) GetResponseRange() *RangeResponse {
+	if x != nil {
+		if x, ok := x.Response.(*ResponseOp_ResponseRange); ok {
+			return x.ResponseRange
+		}
+	}
+	return nil
+}
+
+func (x *ResponseOp) GetResponsePut() *PutResponse {
+	if x != nil {
+		if x, ok := x.Response.(*ResponseOp_ResponsePut); ok {
+			return x.ResponsePut
+		}
+	}
+	return nil
+}
+
+func (x *ResponseOp) GetResponseDeleteRange() *DeleteRangeResponse {
+	if x != nil {
+		if x, ok := x.Response.(*ResponseOp_ResponseDeleteRange); ok {
+			return x.ResponseDeleteRange
+		}
+	}
+	return nil
+}
+
+type isResponseOp_Response interface {
+	isResponseOp_Response()
+}
+
+type ResponseOp_ResponseRange struct {
+	ResponseRange *RangeResponse `protobuf:"bytes,1,opt,name=response_range,json=responseRange,proto3,oneof"`
+}
+
+type ResponseOp_ResponsePut struct {
+	ResponsePut *PutResponse `protobuf:"bytes,2,opt,name=response_put,json=responsePut,proto3,oneof"`
+}
+
+type ResponseOp_ResponseDeleteRange struct {
+	ResponseDeleteRange *DeleteRangeResponse `protobuf:"bytes,3,opt,name=response_delete_range,json=responseDeleteRange,proto3,oneof"`
+}
+
+func (*ResponseOp_ResponseRange) isResponseOp_Response() {}
+
+func (*ResponseOp_ResponsePut) isResponseOp_Response() {}
+
+func (*ResponseOp_ResponseDeleteRange) isResponseOp_Response() {}
+
+type TxnRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Compare       []*Compare             `protobuf:"bytes,1,rep,name=compare,proto3" json:"compare,omitempty"`
+	Success       []*RequestOp           `protobuf:"bytes,2,rep,name=success,proto3" json:"success,omitempty"`
+	Failure       []*RequestOp           `protobuf:"bytes,3,rep,name=failure,proto3" json:"failure,omitempty"`
+	ClientId      uint64                 `protobuf:"varint,4,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	RequestId     uint64                 `protobuf:"varint,5,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TxnRequest) Reset() {
+	*x = TxnRequest{}
+	mi := &file_etcdlite_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TxnRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TxnRequest) ProtoMessage() {}
+
+func (x *TxnRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_etcdlite_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TxnRequest.ProtoReflect.Descriptor instead.
+func (*TxnRequest) Descriptor() ([]byte, []int) {
+	return file_etcdlite_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *TxnRequest) GetCompare() []*Compare {
+	if x != nil {
+		return x.Compare
+	}
+	return nil
+}
+
+func (x *TxnRequest) GetSuccess() []*RequestOp {
+	if x != nil {
+		return x.Success
+	}
+	return nil
+}
+
+func (x *TxnRequest) GetFailure() []*RequestOp {
+	if x != nil {
+		return x.Failure
+	}
+	return nil
+}
+
+func (x *TxnRequest) GetClientId() uint64 {
+	if x != nil {
+		return x.ClientId
+	}
+	return 0
+}
+
+func (x *TxnRequest) GetRequestId() uint64 {
+	if x != nil {
+		return x.RequestId
+	}
+	return 0
+}
+
+type TxnResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Header        *ResponseHeader        `protobuf:"bytes,1,opt,name=header,proto3" json:"header,omitempty"`
+	Succeeded     bool                   `protobuf:"varint,2,opt,name=succeeded,proto3" json:"succeeded,omitempty"`
+	Responses     []*ResponseOp          `protobuf:"bytes,3,rep,name=responses,proto3" json:"responses,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TxnResponse) Reset() {
+	*x = TxnResponse{}
+	mi := &file_etcdlite_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TxnResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TxnResponse) ProtoMessage() {}
+
+func (x *TxnResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_etcdlite_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TxnResponse.ProtoReflect.Descriptor instead.
+func (*TxnResponse) Descriptor() ([]byte, []int) {
+	return file_etcdlite_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *TxnResponse) GetHeader() *ResponseHeader {
+	if x != nil {
+		return x.Header
+	}
+	return nil
+}
+
+func (x *TxnResponse) GetSucceeded() bool {
+	if x != nil {
+		return x.Succeeded
+	}
+	return false
+}
+
+func (x *TxnResponse) GetResponses() []*ResponseOp {
+	if x != nil {
+		return x.Responses
+	}
+	return nil
+}
+
 type StatusRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -613,7 +1158,7 @@ type StatusRequest struct {
 
 func (x *StatusRequest) Reset() {
 	*x = StatusRequest{}
-	mi := &file_etcdlite_proto_msgTypes[8]
+	mi := &file_etcdlite_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -625,7 +1170,7 @@ func (x *StatusRequest) String() string {
 func (*StatusRequest) ProtoMessage() {}
 
 func (x *StatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[8]
+	mi := &file_etcdlite_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -638,7 +1183,7 @@ func (x *StatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusRequest.ProtoReflect.Descriptor instead.
 func (*StatusRequest) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{8}
+	return file_etcdlite_proto_rawDescGZIP(), []int{13}
 }
 
 type StatusResponse struct {
@@ -655,7 +1200,7 @@ type StatusResponse struct {
 
 func (x *StatusResponse) Reset() {
 	*x = StatusResponse{}
-	mi := &file_etcdlite_proto_msgTypes[9]
+	mi := &file_etcdlite_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -667,7 +1212,7 @@ func (x *StatusResponse) String() string {
 func (*StatusResponse) ProtoMessage() {}
 
 func (x *StatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[9]
+	mi := &file_etcdlite_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -680,7 +1225,7 @@ func (x *StatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusResponse.ProtoReflect.Descriptor instead.
 func (*StatusResponse) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{9}
+	return file_etcdlite_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *StatusResponse) GetHeader() *ResponseHeader {
@@ -778,7 +1323,41 @@ const file_etcdlite_proto_rawDesc = "" +
 	"\x13DeleteRangeResponse\x123\n" +
 	"\x06header\x18\x01 \x01(\v2\x1b.etcdlite.v1.ResponseHeaderR\x06header\x12\x18\n" +
 	"\adeleted\x18\x02 \x01(\x03R\adeleted\x120\n" +
-	"\bprev_kvs\x18\x03 \x03(\v2\x15.etcdlite.v1.KeyValueR\aprevKvs\"\x0f\n" +
+	"\bprev_kvs\x18\x03 \x03(\v2\x15.etcdlite.v1.KeyValueR\aprevKvs\"\x9a\x02\n" +
+	"\aCompare\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\fR\x03key\x122\n" +
+	"\x06target\x18\x02 \x01(\x0e2\x1a.etcdlite.v1.CompareTargetR\x06target\x122\n" +
+	"\x06result\x18\x03 \x01(\x0e2\x1a.etcdlite.v1.CompareResultR\x06result\x12\x18\n" +
+	"\aversion\x18\x04 \x01(\x03R\aversion\x12'\n" +
+	"\x0fcreate_revision\x18\x05 \x01(\x03R\x0ecreateRevision\x12!\n" +
+	"\fmod_revision\x18\x06 \x01(\x03R\vmodRevision\x12\x14\n" +
+	"\x05value\x18\a \x01(\fR\x05value\x12\x19\n" +
+	"\blease_id\x18\b \x01(\x03R\aleaseId\"\xe9\x01\n" +
+	"\tRequestOp\x12@\n" +
+	"\rrequest_range\x18\x01 \x01(\v2\x19.etcdlite.v1.RangeRequestH\x00R\frequestRange\x12:\n" +
+	"\vrequest_put\x18\x02 \x01(\v2\x17.etcdlite.v1.PutRequestH\x00R\n" +
+	"requestPut\x12S\n" +
+	"\x14request_delete_range\x18\x03 \x01(\v2\x1f.etcdlite.v1.DeleteRangeRequestH\x00R\x12requestDeleteRangeB\t\n" +
+	"\arequest\"\xf4\x01\n" +
+	"\n" +
+	"ResponseOp\x12C\n" +
+	"\x0eresponse_range\x18\x01 \x01(\v2\x1a.etcdlite.v1.RangeResponseH\x00R\rresponseRange\x12=\n" +
+	"\fresponse_put\x18\x02 \x01(\v2\x18.etcdlite.v1.PutResponseH\x00R\vresponsePut\x12V\n" +
+	"\x15response_delete_range\x18\x03 \x01(\v2 .etcdlite.v1.DeleteRangeResponseH\x00R\x13responseDeleteRangeB\n" +
+	"\n" +
+	"\bresponse\"\xdc\x01\n" +
+	"\n" +
+	"TxnRequest\x12.\n" +
+	"\acompare\x18\x01 \x03(\v2\x14.etcdlite.v1.CompareR\acompare\x120\n" +
+	"\asuccess\x18\x02 \x03(\v2\x16.etcdlite.v1.RequestOpR\asuccess\x120\n" +
+	"\afailure\x18\x03 \x03(\v2\x16.etcdlite.v1.RequestOpR\afailure\x12\x1b\n" +
+	"\tclient_id\x18\x04 \x01(\x04R\bclientId\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x05 \x01(\x04R\trequestId\"\x97\x01\n" +
+	"\vTxnResponse\x123\n" +
+	"\x06header\x18\x01 \x01(\v2\x1b.etcdlite.v1.ResponseHeaderR\x06header\x12\x1c\n" +
+	"\tsucceeded\x18\x02 \x01(\bR\tsucceeded\x125\n" +
+	"\tresponses\x18\x03 \x03(\v2\x17.etcdlite.v1.ResponseOpR\tresponses\"\x0f\n" +
 	"\rStatusRequest\"\xf0\x01\n" +
 	"\x0eStatusResponse\x123\n" +
 	"\x06header\x18\x01 \x01(\v2\x1b.etcdlite.v1.ResponseHeaderR\x06header\x12\x14\n" +
@@ -786,11 +1365,25 @@ const file_etcdlite_proto_rawDesc = "" +
 	"\fcommit_index\x18\x03 \x01(\x04R\vcommitIndex\x12#\n" +
 	"\rapplied_index\x18\x04 \x01(\x04R\fappliedIndex\x12$\n" +
 	"\x0elast_log_index\x18\x05 \x01(\x04R\flastLogIndex\x12%\n" +
-	"\x0esnapshot_index\x18\x06 \x01(\x04R\rsnapshotIndex2\xd0\x01\n" +
+	"\x0esnapshot_index\x18\x06 \x01(\x04R\rsnapshotIndex*\xc4\x01\n" +
+	"\rCompareTarget\x12\x1e\n" +
+	"\x1aCOMPARE_TARGET_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16COMPARE_TARGET_VERSION\x10\x01\x12\"\n" +
+	"\x1eCOMPARE_TARGET_CREATE_REVISION\x10\x02\x12\x1f\n" +
+	"\x1bCOMPARE_TARGET_MOD_REVISION\x10\x03\x12\x18\n" +
+	"\x14COMPARE_TARGET_VALUE\x10\x04\x12\x18\n" +
+	"\x14COMPARE_TARGET_LEASE\x10\x05*\x9c\x01\n" +
+	"\rCompareResult\x12\x1e\n" +
+	"\x1aCOMPARE_RESULT_UNSPECIFIED\x10\x00\x12\x18\n" +
+	"\x14COMPARE_RESULT_EQUAL\x10\x01\x12\x1c\n" +
+	"\x18COMPARE_RESULT_NOT_EQUAL\x10\x02\x12\x1a\n" +
+	"\x16COMPARE_RESULT_GREATER\x10\x03\x12\x17\n" +
+	"\x13COMPARE_RESULT_LESS\x10\x042\x8a\x02\n" +
 	"\x02KV\x12>\n" +
 	"\x05Range\x12\x19.etcdlite.v1.RangeRequest\x1a\x1a.etcdlite.v1.RangeResponse\x128\n" +
 	"\x03Put\x12\x17.etcdlite.v1.PutRequest\x1a\x18.etcdlite.v1.PutResponse\x12P\n" +
-	"\vDeleteRange\x12\x1f.etcdlite.v1.DeleteRangeRequest\x1a .etcdlite.v1.DeleteRangeResponse2P\n" +
+	"\vDeleteRange\x12\x1f.etcdlite.v1.DeleteRangeRequest\x1a .etcdlite.v1.DeleteRangeResponse\x128\n" +
+	"\x03Txn\x12\x17.etcdlite.v1.TxnRequest\x1a\x18.etcdlite.v1.TxnResponse2P\n" +
 	"\vMaintenance\x12A\n" +
 	"\x06Status\x12\x1a.etcdlite.v1.StatusRequest\x1a\x1b.etcdlite.v1.StatusResponseB;Z9github.com/HasonoCell/Etcd-Lite/api/etcdlitepb;etcdlitepbb\x06proto3"
 
@@ -806,40 +1399,63 @@ func file_etcdlite_proto_rawDescGZIP() []byte {
 	return file_etcdlite_proto_rawDescData
 }
 
-var file_etcdlite_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_etcdlite_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_etcdlite_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_etcdlite_proto_goTypes = []any{
-	(*ResponseHeader)(nil),      // 0: etcdlite.v1.ResponseHeader
-	(*KeyValue)(nil),            // 1: etcdlite.v1.KeyValue
-	(*RangeRequest)(nil),        // 2: etcdlite.v1.RangeRequest
-	(*RangeResponse)(nil),       // 3: etcdlite.v1.RangeResponse
-	(*PutRequest)(nil),          // 4: etcdlite.v1.PutRequest
-	(*PutResponse)(nil),         // 5: etcdlite.v1.PutResponse
-	(*DeleteRangeRequest)(nil),  // 6: etcdlite.v1.DeleteRangeRequest
-	(*DeleteRangeResponse)(nil), // 7: etcdlite.v1.DeleteRangeResponse
-	(*StatusRequest)(nil),       // 8: etcdlite.v1.StatusRequest
-	(*StatusResponse)(nil),      // 9: etcdlite.v1.StatusResponse
+	(CompareTarget)(0),          // 0: etcdlite.v1.CompareTarget
+	(CompareResult)(0),          // 1: etcdlite.v1.CompareResult
+	(*ResponseHeader)(nil),      // 2: etcdlite.v1.ResponseHeader
+	(*KeyValue)(nil),            // 3: etcdlite.v1.KeyValue
+	(*RangeRequest)(nil),        // 4: etcdlite.v1.RangeRequest
+	(*RangeResponse)(nil),       // 5: etcdlite.v1.RangeResponse
+	(*PutRequest)(nil),          // 6: etcdlite.v1.PutRequest
+	(*PutResponse)(nil),         // 7: etcdlite.v1.PutResponse
+	(*DeleteRangeRequest)(nil),  // 8: etcdlite.v1.DeleteRangeRequest
+	(*DeleteRangeResponse)(nil), // 9: etcdlite.v1.DeleteRangeResponse
+	(*Compare)(nil),             // 10: etcdlite.v1.Compare
+	(*RequestOp)(nil),           // 11: etcdlite.v1.RequestOp
+	(*ResponseOp)(nil),          // 12: etcdlite.v1.ResponseOp
+	(*TxnRequest)(nil),          // 13: etcdlite.v1.TxnRequest
+	(*TxnResponse)(nil),         // 14: etcdlite.v1.TxnResponse
+	(*StatusRequest)(nil),       // 15: etcdlite.v1.StatusRequest
+	(*StatusResponse)(nil),      // 16: etcdlite.v1.StatusResponse
 }
 var file_etcdlite_proto_depIdxs = []int32{
-	0,  // 0: etcdlite.v1.RangeResponse.header:type_name -> etcdlite.v1.ResponseHeader
-	1,  // 1: etcdlite.v1.RangeResponse.kvs:type_name -> etcdlite.v1.KeyValue
-	0,  // 2: etcdlite.v1.PutResponse.header:type_name -> etcdlite.v1.ResponseHeader
-	1,  // 3: etcdlite.v1.PutResponse.prev_kv:type_name -> etcdlite.v1.KeyValue
-	0,  // 4: etcdlite.v1.DeleteRangeResponse.header:type_name -> etcdlite.v1.ResponseHeader
-	1,  // 5: etcdlite.v1.DeleteRangeResponse.prev_kvs:type_name -> etcdlite.v1.KeyValue
-	0,  // 6: etcdlite.v1.StatusResponse.header:type_name -> etcdlite.v1.ResponseHeader
-	2,  // 7: etcdlite.v1.KV.Range:input_type -> etcdlite.v1.RangeRequest
-	4,  // 8: etcdlite.v1.KV.Put:input_type -> etcdlite.v1.PutRequest
-	6,  // 9: etcdlite.v1.KV.DeleteRange:input_type -> etcdlite.v1.DeleteRangeRequest
-	8,  // 10: etcdlite.v1.Maintenance.Status:input_type -> etcdlite.v1.StatusRequest
-	3,  // 11: etcdlite.v1.KV.Range:output_type -> etcdlite.v1.RangeResponse
-	5,  // 12: etcdlite.v1.KV.Put:output_type -> etcdlite.v1.PutResponse
-	7,  // 13: etcdlite.v1.KV.DeleteRange:output_type -> etcdlite.v1.DeleteRangeResponse
-	9,  // 14: etcdlite.v1.Maintenance.Status:output_type -> etcdlite.v1.StatusResponse
-	11, // [11:15] is the sub-list for method output_type
-	7,  // [7:11] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	2,  // 0: etcdlite.v1.RangeResponse.header:type_name -> etcdlite.v1.ResponseHeader
+	3,  // 1: etcdlite.v1.RangeResponse.kvs:type_name -> etcdlite.v1.KeyValue
+	2,  // 2: etcdlite.v1.PutResponse.header:type_name -> etcdlite.v1.ResponseHeader
+	3,  // 3: etcdlite.v1.PutResponse.prev_kv:type_name -> etcdlite.v1.KeyValue
+	2,  // 4: etcdlite.v1.DeleteRangeResponse.header:type_name -> etcdlite.v1.ResponseHeader
+	3,  // 5: etcdlite.v1.DeleteRangeResponse.prev_kvs:type_name -> etcdlite.v1.KeyValue
+	0,  // 6: etcdlite.v1.Compare.target:type_name -> etcdlite.v1.CompareTarget
+	1,  // 7: etcdlite.v1.Compare.result:type_name -> etcdlite.v1.CompareResult
+	4,  // 8: etcdlite.v1.RequestOp.request_range:type_name -> etcdlite.v1.RangeRequest
+	6,  // 9: etcdlite.v1.RequestOp.request_put:type_name -> etcdlite.v1.PutRequest
+	8,  // 10: etcdlite.v1.RequestOp.request_delete_range:type_name -> etcdlite.v1.DeleteRangeRequest
+	5,  // 11: etcdlite.v1.ResponseOp.response_range:type_name -> etcdlite.v1.RangeResponse
+	7,  // 12: etcdlite.v1.ResponseOp.response_put:type_name -> etcdlite.v1.PutResponse
+	9,  // 13: etcdlite.v1.ResponseOp.response_delete_range:type_name -> etcdlite.v1.DeleteRangeResponse
+	10, // 14: etcdlite.v1.TxnRequest.compare:type_name -> etcdlite.v1.Compare
+	11, // 15: etcdlite.v1.TxnRequest.success:type_name -> etcdlite.v1.RequestOp
+	11, // 16: etcdlite.v1.TxnRequest.failure:type_name -> etcdlite.v1.RequestOp
+	2,  // 17: etcdlite.v1.TxnResponse.header:type_name -> etcdlite.v1.ResponseHeader
+	12, // 18: etcdlite.v1.TxnResponse.responses:type_name -> etcdlite.v1.ResponseOp
+	2,  // 19: etcdlite.v1.StatusResponse.header:type_name -> etcdlite.v1.ResponseHeader
+	4,  // 20: etcdlite.v1.KV.Range:input_type -> etcdlite.v1.RangeRequest
+	6,  // 21: etcdlite.v1.KV.Put:input_type -> etcdlite.v1.PutRequest
+	8,  // 22: etcdlite.v1.KV.DeleteRange:input_type -> etcdlite.v1.DeleteRangeRequest
+	13, // 23: etcdlite.v1.KV.Txn:input_type -> etcdlite.v1.TxnRequest
+	15, // 24: etcdlite.v1.Maintenance.Status:input_type -> etcdlite.v1.StatusRequest
+	5,  // 25: etcdlite.v1.KV.Range:output_type -> etcdlite.v1.RangeResponse
+	7,  // 26: etcdlite.v1.KV.Put:output_type -> etcdlite.v1.PutResponse
+	9,  // 27: etcdlite.v1.KV.DeleteRange:output_type -> etcdlite.v1.DeleteRangeResponse
+	14, // 28: etcdlite.v1.KV.Txn:output_type -> etcdlite.v1.TxnResponse
+	16, // 29: etcdlite.v1.Maintenance.Status:output_type -> etcdlite.v1.StatusResponse
+	25, // [25:30] is the sub-list for method output_type
+	20, // [20:25] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_etcdlite_proto_init() }
@@ -847,18 +1463,29 @@ func file_etcdlite_proto_init() {
 	if File_etcdlite_proto != nil {
 		return
 	}
+	file_etcdlite_proto_msgTypes[9].OneofWrappers = []any{
+		(*RequestOp_RequestRange)(nil),
+		(*RequestOp_RequestPut)(nil),
+		(*RequestOp_RequestDeleteRange)(nil),
+	}
+	file_etcdlite_proto_msgTypes[10].OneofWrappers = []any{
+		(*ResponseOp_ResponseRange)(nil),
+		(*ResponseOp_ResponsePut)(nil),
+		(*ResponseOp_ResponseDeleteRange)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_etcdlite_proto_rawDesc), len(file_etcdlite_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   10,
+			NumEnums:      2,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   2,
 		},
 		GoTypes:           file_etcdlite_proto_goTypes,
 		DependencyIndexes: file_etcdlite_proto_depIdxs,
+		EnumInfos:         file_etcdlite_proto_enumTypes,
 		MessageInfos:      file_etcdlite_proto_msgTypes,
 	}.Build()
 	File_etcdlite_proto = out.File

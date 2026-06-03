@@ -40,7 +40,9 @@ type DeleteRangeCommand struct {
 	PrevKV bool   `json:"prev_kv,omitempty"`
 }
 
-// TxnCommand 先定义数据结构，compare/success/failure 语义在 M5 接入。
+// TxnCommand 表示 compare 成功时执行 success ops，否则执行 failure ops。
+// 可以发现，Op 其实粒度比 Command 更小。
+// ! Txn 即事务本质上是一种业务概念，CAS 是实现 Txn 冲突检测和原子提交的一种思路。
 type TxnCommand struct {
 	Compare []Compare `json:"compare,omitempty"`
 	Success []Op      `json:"success,omitempty"`
@@ -141,7 +143,7 @@ func (c Command) Validate() error {
 		if c.Txn == nil {
 			return ErrInvalidCommand
 		}
-		return nil
+		return ValidateTxnCommand(*c.Txn)
 	default:
 		return ErrInvalidCommand
 	}

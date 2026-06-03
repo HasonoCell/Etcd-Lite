@@ -209,7 +209,7 @@ func (s *Store) History(req mvcc.HistoryRequest) (mvcc.HistoryResponse, error) {
 }
 
 // Apply 将 raft 已经 committed 的内部 Command 应用到 MVCC Store，并返回结构化 ApplyResult。
-// 这里暂时只支持 Put/DeleteRange；Txn 的 compare/success/failure 语义留到 M5；而读语义的 Range 走的是 ReadIndex。
+// Txn 会在同一个 working view 中执行 compare 和 branch ops，所有写事件共享同一个 main revision。
 func (s *Store) Apply(command mvcc.Command) (mvcc.ApplyResult, error) {
 	if err := command.Validate(); err != nil {
 		return mvcc.ApplyResult{Succeeded: false, Err: err}, err
@@ -248,12 +248,33 @@ func (s *Store) Apply(command mvcc.Command) (mvcc.ApplyResult, error) {
 			Events:    mvcc.CloneEvents(resp.Events),
 		}, nil
 	case mvcc.CommandTxn:
-		err := mvcc.ErrUnsupportedCommand
-		return mvcc.ApplyResult{Succeeded: false, Err: err}, err
+		return s.applyTxn(*command.Txn)
 	default:
 		err := mvcc.ErrInvalidCommand
 		return mvcc.ApplyResult{Succeeded: false, Err: err}, err
 	}
+}
+
+func (s *Store) applyTxn(txn mvcc.TxnCommand) (mvcc.ApplyResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	execution, err := mvcc.ExecuteTxn(s.current, s.revision, txn)
+	if err != nil {
+		return mvcc.ApplyResult{Succeeded: false, Err: err}, err
+	}
+	if len(execution.Events) > 0 {
+		s.revision = execution.Revision
+		s.current = execution.Current
+		s.history = append(s.history, mvcc.CloneEvents(execution.Events)...)
+	}
+
+	return mvcc.ApplyResult{
+		Revision:  execution.Revision,
+		Succeeded: execution.Succeeded,
+		Responses: execution.Responses,
+		Events:    mvcc.CloneEvents(execution.Events),
+	}, nil
 }
 
 // normalizeReadRevisionLocked 将用户传入的 read revision 规范化为可读取的 MVCC revision。
