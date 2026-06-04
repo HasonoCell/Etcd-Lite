@@ -17,6 +17,7 @@ import (
 const (
 	defaultRequestTimeout     = 3 * time.Second
 	defaultLeaseCheckInterval = 100 * time.Millisecond
+	defaultSnapshotThreshold  = uint64(64)
 	maxCachedRequests         = 1024
 	maxCachedApplyIndex       = 1024
 
@@ -41,6 +42,7 @@ type Config struct {
 	ElectionTimeout   time.Duration
 	HeartbeatInterval time.Duration
 	RequestTimeout    time.Duration
+	SnapshotThreshold uint64
 }
 
 type Server struct {
@@ -49,12 +51,13 @@ type Server struct {
 	etcdlitepb.UnimplementedLeaseServer
 	etcdlitepb.UnimplementedMaintenanceServer
 
-	raft           *core.Raft // raft 共识层
-	store          mvcc.Store // mvcc 状态机
-	watchHub       *watch.Hub
-	applyCh        chan core.ApplyMsg
-	requestTimeout time.Duration
-	stopCh         chan struct{}
+	raft              *core.Raft // raft 共识层
+	store             mvcc.Store // mvcc 状态机
+	watchHub          *watch.Hub
+	applyCh           chan core.ApplyMsg
+	requestTimeout    time.Duration
+	snapshotThreshold uint64
+	stopCh            chan struct{}
 
 	mu sync.Mutex
 	// raft index -> 等待该 index apply 的 channel，目的就是为了把全局 applyCh 分发成某个请求正在等的结果。
@@ -106,6 +109,20 @@ func New(cfg Config) (*Server, error) {
 	if cfg.RequestTimeout == 0 {
 		cfg.RequestTimeout = defaultRequestTimeout
 	}
+	if cfg.SnapshotThreshold == 0 {
+		cfg.SnapshotThreshold = defaultSnapshotThreshold
+	}
+	if cfg.RaftStorage != nil {
+		ps, err := cfg.RaftStorage.Load()
+		if err != nil {
+			return nil, err
+		}
+		if len(ps.Snapshot.Data) > 0 {
+			if err := cfg.Store.RestoreSnapshot(ps.Snapshot.Data); err != nil {
+				return nil, err
+			}
+		}
+	}
 
 	rf, err := core.New(core.Config{
 		ID:                cfg.ID,
@@ -121,17 +138,18 @@ func New(cfg Config) (*Server, error) {
 	}
 
 	s := &Server{
-		raft:           rf,
-		store:          cfg.Store,
-		watchHub:       watch.New(watch.Config{}),
-		applyCh:        cfg.ApplyCh,
-		requestTimeout: cfg.RequestTimeout,
-		stopCh:         make(chan struct{}),
-		waiters:        make(map[uint64]chan applyResult),
-		indexCache:     make(map[uint64]applyResult),
-		requestCache:   make(map[requestKey]applyResult),
-		pending:        make(map[requestKey]chan applyResult),
-		appliedIndex:   rf.Status().AppliedIndex,
+		raft:              rf,
+		store:             cfg.Store,
+		watchHub:          watch.New(watch.Config{}),
+		applyCh:           cfg.ApplyCh,
+		requestTimeout:    cfg.RequestTimeout,
+		snapshotThreshold: cfg.SnapshotThreshold,
+		stopCh:            make(chan struct{}),
+		waiters:           make(map[uint64]chan applyResult),
+		indexCache:        make(map[uint64]applyResult),
+		requestCache:      make(map[requestKey]applyResult),
+		pending:           make(map[requestKey]chan applyResult),
+		appliedIndex:      maxUint64(rf.Status().AppliedIndex, cfg.Store.AppliedIndex()),
 	}
 	go s.applyLoop()
 	go s.leaseExpirationLoop()
@@ -279,6 +297,30 @@ func (s *Server) Txn(ctx context.Context, req *etcdlitepb.TxnRequest) (*etcdlite
 		Header:    s.header(result.result.Revision, result.index, ""),
 		Succeeded: result.result.Succeeded,
 		Responses: s.opResponsesToProto(result.result.Responses, result.result.Revision, result.index),
+	}, nil
+}
+
+// Compact 写入 Raft log，统一推进所有节点的 MVCC compact revision。
+func (s *Server) Compact(ctx context.Context, req *etcdlitepb.CompactionRequest) (*etcdlitepb.CompactionResponse, error) {
+	ctx, cancel := s.withRequestTimeout(ctx)
+	defer cancel()
+
+	result, err := s.submit(ctx, mvcc.Command{
+		ID:   mvcc.RequestID{ClientID: req.GetClientId(), RequestID: req.GetRequestId()},
+		Kind: mvcc.CommandCompact,
+		Compact: &mvcc.CompactCommand{
+			Revision: req.GetRevision(),
+		},
+	})
+	if err != nil {
+		return &etcdlitepb.CompactionResponse{Header: s.errorHeader(errorString(err), 0)}, nil
+	}
+	if result.result.Compact == nil {
+		return &etcdlitepb.CompactionResponse{Header: s.errorHeader(errorApplyMismatch, result.index)}, nil
+	}
+	return &etcdlitepb.CompactionResponse{
+		Header:          s.header(result.result.Revision, result.index, ""),
+		CompactRevision: result.result.Compact.Revision,
 	}, nil
 }
 
@@ -521,18 +563,31 @@ func (s *Server) applyLoop() {
 		case <-s.stopCh:
 			return
 		case msg := <-s.applyCh:
+			if msg.SnapshotValid {
+				s.handleSnapshotApply(msg)
+				continue
+			}
 			if !msg.CommandValid {
 				continue
 			}
+			if msg.CommandIndex <= s.store.AppliedIndex() {
+				s.markAppliedIndex(msg.CommandIndex)
+				continue
+			}
 			result := applyResult{index: msg.CommandIndex, term: msg.CommandTerm}
+			var command mvcc.Command
 			command, err := mvcc.DecodeCommand(msg.Command)
 			if err != nil {
 				result.err = err
 			} else {
 				result.request = requestKey{ClientID: command.ID.ClientID, RequestID: command.ID.RequestID}
+				// apply 给 mvcc
 				applyResult, applyErr := s.store.Apply(command)
 				result.result = applyResult
 				result.err = applyErr
+			}
+			if err := s.store.SetAppliedIndex(msg.CommandIndex); err != nil && result.err == nil {
+				result.err = err
 			}
 			// command 成功 apply 后走 finishApply
 			s.finishApply(result)
@@ -540,8 +595,56 @@ func (s *Server) applyLoop() {
 			if result.err == nil && len(result.result.Events) > 0 {
 				s.watchHub.Publish(result.result.Events)
 			}
+			if result.err == nil {
+				// 如果 apply 的是 compact command，则通过 snapshotAt 走 raft snapshot
+				if command.Kind == mvcc.CommandCompact {
+					s.snapshotAt(result.index)
+				} else {
+					s.maybeSnapshot(result.index)
+				}
+			}
 		}
 	}
+}
+
+func (s *Server) handleSnapshotApply(msg core.ApplyMsg) {
+	if err := s.store.RestoreSnapshot(msg.Snapshot); err != nil {
+		return
+	}
+	_ = s.store.SetAppliedIndex(msg.SnapshotIndex)
+	s.markAppliedIndex(msg.SnapshotIndex)
+}
+
+func (s *Server) markAppliedIndex(index uint64) {
+	s.mu.Lock()
+	if index > s.appliedIndex {
+		s.appliedIndex = index
+	}
+	s.mu.Unlock()
+}
+
+func (s *Server) maybeSnapshot(appliedIndex uint64) {
+	if s.snapshotThreshold == 0 {
+		return
+	}
+	status := s.raft.Status()
+	if appliedIndex <= status.SnapshotIndex || appliedIndex-status.SnapshotIndex < s.snapshotThreshold {
+		return
+	}
+	s.snapshotAt(appliedIndex)
+}
+
+func (s *Server) snapshotAt(index uint64) {
+	// 这里的安全关系是：只有状态机 snapshot 已经包含了 index 之前的执行结果，
+	// Raft 才能删除 index <= 8 的 log。
+
+	// 所以先得到 snapshot data
+	data, err := s.store.Snapshot()
+	if err != nil {
+		return
+	}
+	// 然后走 raft
+	s.raft.Snapshot(index, data)
 }
 
 // 对 applyResult 的一系列操作
@@ -1010,4 +1113,11 @@ func errorString(err error) string {
 		return errorApplyMismatch
 	}
 	return err.Error()
+}
+
+func maxUint64(a uint64, b uint64) uint64 {
+	if a > b {
+		return a
+	}
+	return b
 }

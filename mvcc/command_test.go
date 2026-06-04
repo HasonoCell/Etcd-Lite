@@ -39,6 +39,26 @@ func TestCommandEncodeDecodeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCompactCommandEncodeDecodeRoundTrip(t *testing.T) {
+	command := Command{
+		ID:      RequestID{ClientID: 8, RequestID: 1},
+		Kind:    CommandCompact,
+		Compact: &CompactCommand{Revision: 11},
+	}
+
+	data, err := EncodeCommand(command)
+	if err != nil {
+		t.Fatalf("EncodeCommand compact: %v", err)
+	}
+	decoded, err := DecodeCommand(data)
+	if err != nil {
+		t.Fatalf("DecodeCommand compact: %v", err)
+	}
+	if decoded.Kind != CommandCompact || decoded.Compact == nil || decoded.Compact.Revision != 11 {
+		t.Fatalf("decoded compact command = %+v", decoded)
+	}
+}
+
 func TestCommandValidateRejectsInvalidPayload(t *testing.T) {
 	_, err := EncodeCommand(Command{Kind: CommandPut})
 	if !errors.Is(err, ErrInvalidCommand) {

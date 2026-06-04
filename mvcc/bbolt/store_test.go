@@ -1,6 +1,7 @@
 package bbolt
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -188,6 +189,87 @@ func TestStoreTxnReadOnlyDoesNotAdvanceRevision(t *testing.T) {
 	}
 	if !result.Succeeded || result.Revision != 1 || store.CurrentRevision() != 1 || len(result.Events) != 0 {
 		t.Fatalf("read-only result = %+v current revision=%d", result, store.CurrentRevision())
+	}
+}
+
+func TestStoreCompactPersistsBaseAndRejectsOldHistory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "backend.db")
+	store := openStore(t, path)
+	put(t, store, "/compact/a", "a1")
+	put(t, store, "/compact/b", "b1")
+	put(t, store, "/compact/a", "a2")
+	put(t, store, "/compact/c", "c1")
+
+	if _, err := store.Compact(mvcc.CompactRequest{Revision: 2}); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reopened := openStore(t, path)
+	defer reopened.Close()
+	if _, err := reopened.Range(mvcc.RangeRequest{Key: []byte("/compact/a"), Revision: 1}); !errors.Is(err, mvcc.ErrCompacted) {
+		t.Fatalf("compacted range error = %v, want ErrCompacted", err)
+	}
+	if history, err := reopened.History(mvcc.HistoryRequest{FromRevision: 1}); !errors.Is(err, mvcc.ErrCompacted) || history.Revision != 2 {
+		t.Fatalf("compacted history = %+v err=%v, want revision 2 ErrCompacted", history, err)
+	}
+	atRevision3, err := reopened.Range(mvcc.RangeRequest{
+		Key:      []byte("/compact/"),
+		End:      mvcc.PrefixEnd([]byte("/compact/")),
+		Revision: 3,
+	})
+	if err != nil {
+		t.Fatalf("Range revision 3: %v", err)
+	}
+	if atRevision3.Count != 2 || string(atRevision3.KVs[0].Value) != "a2" || string(atRevision3.KVs[1].Value) != "b1" {
+		t.Fatalf("revision 3 range = %+v", atRevision3)
+	}
+}
+
+func TestStoreSnapshotRestorePreservesCompactionAndLeases(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "source.db"))
+	defer store.Close()
+	grantLease(t, store, 800, 60)
+	put(t, store, "/snap/a", "a1")
+	put(t, store, "/snap/b", "b1")
+	put(t, store, "/snap/a", "a2")
+	if _, err := store.Put(mvcc.PutRequest{Key: []byte("/snap/lease"), Value: []byte("leased"), LeaseID: 800}); err != nil {
+		t.Fatalf("Put leased key: %v", err)
+	}
+	if _, err := store.Compact(mvcc.CompactRequest{Revision: 2}); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	if err := store.SetAppliedIndex(123); err != nil {
+		t.Fatalf("SetAppliedIndex: %v", err)
+	}
+	data, err := store.Snapshot()
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+
+	restored := openStore(t, filepath.Join(t.TempDir(), "restored.db"))
+	defer restored.Close()
+	if err := restored.RestoreSnapshot(data); err != nil {
+		t.Fatalf("RestoreSnapshot: %v", err)
+	}
+	if restored.AppliedIndex() != 123 {
+		t.Fatalf("applied index = %d, want 123", restored.AppliedIndex())
+	}
+	atRevision3, err := restored.Range(mvcc.RangeRequest{Key: []byte("/snap/a"), Revision: 3})
+	if err != nil {
+		t.Fatalf("Range revision 3: %v", err)
+	}
+	if atRevision3.Count != 1 || string(atRevision3.KVs[0].Value) != "a2" {
+		t.Fatalf("restored revision 3 range = %+v", atRevision3)
+	}
+	leases, err := restored.Leases()
+	if err != nil {
+		t.Fatalf("Leases: %v", err)
+	}
+	if len(leases) != 1 || leases[0].LeaseID != 800 || len(leases[0].Keys) != 1 || string(leases[0].Keys[0]) != "/snap/lease" {
+		t.Fatalf("restored leases = %+v", leases)
 	}
 }
 

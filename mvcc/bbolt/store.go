@@ -19,11 +19,14 @@ import (
 )
 
 var (
-	metaBucket    = []byte("meta")
-	currentBucket = []byte("current_kv")
-	historyBucket = []byte("history")
-	leaseBucket   = []byte("lease")
-	revisionKey   = []byte("current_main_rev")
+	metaBucket         = []byte("meta")
+	currentBucket      = []byte("current_kv")
+	historyBucket      = []byte("history")
+	compactBucket      = []byte("compact_kv")
+	leaseBucket        = []byte("lease")
+	revisionKey        = []byte("current_main_rev")
+	compactRevisionKey = []byte("compact_main_rev")
+	appliedIndexKey    = []byte("applied_index")
 )
 
 // Store 用 bbolt bucket 维护 current view 和 history view。
@@ -58,6 +61,26 @@ func (s *Store) CurrentRevision() int64 {
 		return nil
 	})
 	return revision
+}
+
+// AppliedIndex 从 meta bucket 读取状态机已经 apply 到的最新 Raft log index。
+func (s *Store) AppliedIndex() uint64 {
+	var index uint64
+	_ = s.db.View(func(tx *bolt.Tx) error {
+		index = appliedIndex(tx)
+		return nil
+	})
+	return index
+}
+
+// SetAppliedIndex 单调推进状态机 apply 进度，避免 restart recovery 重复执行已 apply log。
+func (s *Store) SetAppliedIndex(index uint64) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		if index <= appliedIndex(tx) {
+			return nil
+		}
+		return setAppliedIndex(tx, index)
+	})
 }
 
 // Range 在一个 read transaction 中读取单 key 或 [key, end) range。
@@ -254,6 +277,10 @@ func (s *Store) History(req mvcc.HistoryRequest) (mvcc.HistoryResponse, error) {
 		if from <= 0 {
 			from = 1
 		}
+		if from <= compactRevision(tx) {
+			resp = mvcc.HistoryResponse{Revision: compactRevision(tx)}
+			return mvcc.ErrCompacted
+		}
 		if from > to {
 			resp = mvcc.HistoryResponse{Revision: currentRev}
 			return nil
@@ -273,6 +300,54 @@ func (s *Store) History(req mvcc.HistoryRequest) (mvcc.HistoryResponse, error) {
 			events = append(events, mvcc.CloneEvent(event))
 		}
 		resp = mvcc.HistoryResponse{Revision: currentRev, Events: events}
+		return nil
+	})
+	return resp, err
+}
+
+// Compact 推进 compact revision，并清理不再可见的旧 history events。
+func (s *Store) Compact(req mvcc.CompactRequest) (mvcc.CompactResponse, error) {
+	if req.Revision <= 0 {
+		return mvcc.CompactResponse{}, mvcc.ErrInvalidRevision
+	}
+
+	var resp mvcc.CompactResponse
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		currentRev := currentRevision(tx)
+		compactRev := compactRevision(tx)
+		if req.Revision <= compactRev {
+			resp = mvcc.CompactResponse{Revision: compactRev}
+			return mvcc.ErrCompacted
+		}
+		if req.Revision > currentRev {
+			return mvcc.ErrFutureRevision
+		}
+
+		base, err := viewAt(tx, req.Revision)
+		if err != nil {
+			return err
+		}
+		if err := replaceKeyValueBucket(tx, compactBucket, base); err != nil {
+			return err
+		}
+		history := tx.Bucket(historyBucket)
+		cursor := history.Cursor()
+		for key, _ := cursor.First(); key != nil; {
+			rev := decodeRevisionKey(key)
+			if rev.Main > req.Revision {
+				break
+			}
+			deleteKey := append([]byte(nil), key...)
+			next, _ := cursor.Next()
+			if err := history.Delete(deleteKey); err != nil {
+				return err
+			}
+			key = next
+		}
+		if err := setCompactRevision(tx, req.Revision); err != nil {
+			return err
+		}
+		resp = mvcc.CompactResponse{Revision: req.Revision}
 		return nil
 	})
 	return resp, err
@@ -341,6 +416,16 @@ func (s *Store) Apply(command mvcc.Command) (mvcc.ApplyResult, error) {
 		}, nil
 	case mvcc.CommandTxn:
 		return s.applyTxn(*command.Txn)
+	case mvcc.CommandCompact:
+		resp, err := s.Compact(mvcc.CompactRequest{Revision: command.Compact.Revision})
+		if err != nil {
+			return mvcc.ApplyResult{Succeeded: false, Err: err}, err
+		}
+		return mvcc.ApplyResult{
+			Revision:  s.CurrentRevision(),
+			Succeeded: true,
+			Compact:   &resp,
+		}, nil
 	case mvcc.CommandLeaseGrant:
 		resp, err := s.leaseGrant(mvcc.LeaseGrantRequest{
 			LeaseID:     command.LeaseGrant.LeaseID,
@@ -375,6 +460,91 @@ func (s *Store) Apply(command mvcc.Command) (mvcc.ApplyResult, error) {
 		err := mvcc.ErrInvalidCommand
 		return mvcc.ApplyResult{Succeeded: false, Err: err}, err
 	}
+}
+
+// Snapshot 导出 bbolt backend 的逻辑状态，作为 Raft snapshot data。
+func (s *Store) Snapshot() ([]byte, error) {
+	var snapshot mvcc.SnapshotData
+	err := s.db.View(func(tx *bolt.Tx) error {
+		current, err := currentView(tx)
+		if err != nil {
+			return err
+		}
+		compact, err := keyValueBucketView(tx, compactBucket)
+		if err != nil {
+			return err
+		}
+		history, err := historyEvents(tx)
+		if err != nil {
+			return err
+		}
+		leases, err := leaseRecords(tx)
+		if err != nil {
+			return err
+		}
+		snapshot = mvcc.SnapshotData{
+			Revision:        currentRevision(tx),
+			CompactRevision: compactRevision(tx),
+			AppliedIndex:    appliedIndex(tx),
+			Current:         mapValues(current),
+			CompactBase:     mapValues(compact),
+			History:         history,
+			Leases:          leases,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mvcc.EncodeSnapshot(snapshot)
+}
+
+// RestoreSnapshot 用 Raft snapshot data 覆盖当前 backend buckets。
+func (s *Store) RestoreSnapshot(data []byte) error {
+	snapshot, err := mvcc.DecodeSnapshot(data)
+	if err != nil {
+		return err
+	}
+
+	return s.db.Update(func(tx *bolt.Tx) error {
+		if err := clearBucket(tx, currentBucket); err != nil {
+			return err
+		}
+		if err := clearBucket(tx, historyBucket); err != nil {
+			return err
+		}
+		if err := clearBucket(tx, compactBucket); err != nil {
+			return err
+		}
+		if err := clearBucket(tx, leaseBucket); err != nil {
+			return err
+		}
+		if err := replaceKeyValueBucket(tx, currentBucket, viewFromKVs(snapshot.Current)); err != nil {
+			return err
+		}
+		if err := replaceKeyValueBucket(tx, compactBucket, viewFromKVs(snapshot.CompactBase)); err != nil {
+			return err
+		}
+		history := tx.Bucket(historyBucket)
+		for _, event := range snapshot.History {
+			if err := putJSON(history, revisionKeyBytes(event.Revision), event); err != nil {
+				return err
+			}
+		}
+		leases := tx.Bucket(leaseBucket)
+		for _, record := range snapshot.Leases {
+			if err := putJSON(leases, leaseKeyBytes(record.LeaseID), record); err != nil {
+				return err
+			}
+		}
+		if err := setCurrentRevision(tx, snapshot.Revision); err != nil {
+			return err
+		}
+		if err := setCompactRevision(tx, snapshot.CompactRevision); err != nil {
+			return err
+		}
+		return setAppliedIndex(tx, snapshot.AppliedIndex)
+	})
 }
 
 func (s *Store) applyTxn(txn mvcc.TxnCommand) (mvcc.ApplyResult, error) {
@@ -568,6 +738,9 @@ func (s *Store) init() error {
 		if _, err := tx.CreateBucketIfNotExists(historyBucket); err != nil {
 			return err
 		}
+		if _, err := tx.CreateBucketIfNotExists(compactBucket); err != nil {
+			return err
+		}
 		_, err := tx.CreateBucketIfNotExists(leaseBucket)
 		return err
 	})
@@ -585,23 +758,50 @@ func normalizeReadRevision(tx *bolt.Tx, revision int64) (int64, error) {
 	if revision > currentRev {
 		return 0, mvcc.ErrFutureRevision
 	}
+	if revision <= compactRevision(tx) {
+		return 0, mvcc.ErrCompacted
+	}
 	return revision, nil
 }
 
 // currentRevision 从 meta bucket 中读取 current_main_rev，缺省值为 0。
 func currentRevision(tx *bolt.Tx) int64 {
-	value := tx.Bucket(metaBucket).Get(revisionKey)
+	return int64(metaUint64(tx, revisionKey))
+}
+
+func compactRevision(tx *bolt.Tx) int64 {
+	return int64(metaUint64(tx, compactRevisionKey))
+}
+
+func appliedIndex(tx *bolt.Tx) uint64 {
+	return metaUint64(tx, appliedIndexKey)
+}
+
+func metaUint64(tx *bolt.Tx, key []byte) uint64 {
+	value := tx.Bucket(metaBucket).Get(key)
 	if len(value) == 0 {
 		return 0
 	}
-	return int64(binary.BigEndian.Uint64(value))
+	return binary.BigEndian.Uint64(value)
 }
 
 // setCurrentRevision 将 current_main_rev 写回 meta bucket。
 func setCurrentRevision(tx *bolt.Tx, revision int64) error {
+	return setMetaUint64(tx, revisionKey, uint64(revision))
+}
+
+func setCompactRevision(tx *bolt.Tx, revision int64) error {
+	return setMetaUint64(tx, compactRevisionKey, uint64(revision))
+}
+
+func setAppliedIndex(tx *bolt.Tx, index uint64) error {
+	return setMetaUint64(tx, appliedIndexKey, index)
+}
+
+func setMetaUint64(tx *bolt.Tx, key []byte, number uint64) error {
 	value := make([]byte, 8)
-	binary.BigEndian.PutUint64(value, uint64(revision))
-	return tx.Bucket(metaBucket).Put(revisionKey, value)
+	binary.BigEndian.PutUint64(value, number)
+	return tx.Bucket(metaBucket).Put(key, value)
 }
 
 // getCurrent 从 current_kv bucket 读取单个 key 的 latest KeyValue。
@@ -706,12 +906,121 @@ func currentView(tx *bolt.Tx) (map[string]mvcc.KeyValue, error) {
 	return view, nil
 }
 
+func keyValueBucketView(tx *bolt.Tx, bucketName []byte) (map[string]mvcc.KeyValue, error) {
+	view := make(map[string]mvcc.KeyValue)
+	cursor := tx.Bucket(bucketName).Cursor()
+	for key, value := cursor.First(); key != nil; key, value = cursor.Next() {
+		var kv mvcc.KeyValue
+		if err := decodeJSON(value, &kv); err != nil {
+			return nil, err
+		}
+		view[string(key)] = mvcc.CloneKeyValue(kv)
+	}
+	return view, nil
+}
+
+func replaceKeyValueBucket(tx *bolt.Tx, bucketName []byte, view map[string]mvcc.KeyValue) error {
+	if err := clearBucket(tx, bucketName); err != nil {
+		return err
+	}
+	bucket := tx.Bucket(bucketName)
+	keys := sortedViewKeys(view)
+	for _, key := range keys {
+		if err := putJSON(bucket, []byte(key), view[key]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func clearBucket(tx *bolt.Tx, bucketName []byte) error {
+	bucket := tx.Bucket(bucketName)
+	cursor := bucket.Cursor()
+	for key, _ := cursor.First(); key != nil; {
+		deleteKey := append([]byte(nil), key...)
+		next, _ := cursor.Next()
+		if err := bucket.Delete(deleteKey); err != nil {
+			return err
+		}
+		key = next
+	}
+	return nil
+}
+
+func historyEvents(tx *bolt.Tx) ([]mvcc.Event, error) {
+	events := make([]mvcc.Event, 0)
+	cursor := tx.Bucket(historyBucket).Cursor()
+	for _, value := cursor.First(); value != nil; _, value = cursor.Next() {
+		var event mvcc.Event
+		if err := decodeJSON(value, &event); err != nil {
+			return nil, err
+		}
+		events = append(events, mvcc.CloneEvent(event))
+	}
+	return events, nil
+}
+
+func leaseRecords(tx *bolt.Tx) ([]mvcc.LeaseRecord, error) {
+	records := make([]mvcc.LeaseRecord, 0)
+	cursor := tx.Bucket(leaseBucket).Cursor()
+	for _, value := cursor.First(); value != nil; _, value = cursor.Next() {
+		var record mvcc.LeaseRecord
+		if err := decodeJSON(value, &record); err != nil {
+			return nil, err
+		}
+		records = append(records, mvcc.CloneLeaseRecord(record))
+	}
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].LeaseID < records[j].LeaseID
+	})
+	return records, nil
+}
+
+func mapValues(view map[string]mvcc.KeyValue) []mvcc.KeyValue {
+	keys := sortedViewKeys(view)
+	kvs := make([]mvcc.KeyValue, 0, len(keys))
+	for _, key := range keys {
+		kvs = append(kvs, mvcc.CloneKeyValue(view[key]))
+	}
+	return kvs
+}
+
+func viewFromKVs(kvs []mvcc.KeyValue) map[string]mvcc.KeyValue {
+	view := make(map[string]mvcc.KeyValue, len(kvs))
+	for _, kv := range kvs {
+		view[string(kv.Key)] = mvcc.CloneKeyValue(kv)
+	}
+	return view
+}
+
+func sortedViewKeys(view map[string]mvcc.KeyValue) []string {
+	keys := make([]string, 0, len(view))
+	for key := range view {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return bytes.Compare([]byte(keys[i]), []byte(keys[j])) < 0
+	})
+	return keys
+}
+
 // viewAt 通过 replay history bucket 还原指定 revision 的 point-in-time view。
 func viewAt(tx *bolt.Tx, revision int64) (map[string]mvcc.KeyValue, error) {
 	view := make(map[string]mvcc.KeyValue)
+	compactRev := compactRevision(tx)
+	if compactRev > 0 {
+		compactView, err := keyValueBucketView(tx, compactBucket)
+		if err != nil {
+			return nil, err
+		}
+		view = compactView
+	}
 	cursor := tx.Bucket(historyBucket).Cursor()
 	for key, value := cursor.First(); key != nil; key, value = cursor.Next() {
 		rev := decodeRevisionKey(key)
+		if rev.Main <= compactRev {
+			continue
+		}
 		if rev.Main > revision {
 			break
 		}

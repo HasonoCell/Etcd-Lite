@@ -169,6 +169,85 @@ func TestApplyCommandAndFutureRevisionError(t *testing.T) {
 	}
 }
 
+func TestCompactRejectsOldHistoryAndKeepsPostCompactReads(t *testing.T) {
+	store := New()
+	put(t, store, "/compact/a", "a1")
+	put(t, store, "/compact/b", "b1")
+	put(t, store, "/compact/a", "a2")
+	put(t, store, "/compact/c", "c1")
+
+	resp, err := store.Compact(mvcc.CompactRequest{Revision: 2})
+	if err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	if resp.Revision != 2 {
+		t.Fatalf("compact revision = %d, want 2", resp.Revision)
+	}
+
+	if _, err := store.Range(mvcc.RangeRequest{Key: []byte("/compact/a"), Revision: 1}); !errors.Is(err, mvcc.ErrCompacted) {
+		t.Fatalf("compacted range error = %v, want ErrCompacted", err)
+	}
+	if history, err := store.History(mvcc.HistoryRequest{FromRevision: 1}); !errors.Is(err, mvcc.ErrCompacted) || history.Revision != 2 {
+		t.Fatalf("compacted history = %+v err=%v, want revision 2 ErrCompacted", history, err)
+	}
+
+	atRevision3 := mustRange(t, store, mvcc.RangeRequest{
+		Key:      []byte("/compact/"),
+		End:      mvcc.PrefixEnd([]byte("/compact/")),
+		Revision: 3,
+	})
+	if atRevision3.Count != 2 || string(atRevision3.KVs[0].Value) != "a2" || string(atRevision3.KVs[1].Value) != "b1" {
+		t.Fatalf("revision 3 range = %+v", atRevision3)
+	}
+	history, err := store.History(mvcc.HistoryRequest{FromRevision: 3, ToRevision: 4})
+	if err != nil {
+		t.Fatalf("History after compact: %v", err)
+	}
+	if len(history.Events) != 2 || history.Events[0].Revision.Main != 3 || history.Events[1].Revision.Main != 4 {
+		t.Fatalf("history after compact = %+v", history.Events)
+	}
+}
+
+func TestSnapshotRestorePreservesCompactBaseAppliedIndexAndLeases(t *testing.T) {
+	store := New()
+	grantLease(t, store, 700, 60)
+	put(t, store, "/snap/a", "a1")
+	put(t, store, "/snap/b", "b1")
+	put(t, store, "/snap/a", "a2")
+	if _, err := store.Put(mvcc.PutRequest{Key: []byte("/snap/lease"), Value: []byte("leased"), LeaseID: 700}); err != nil {
+		t.Fatalf("Put leased key: %v", err)
+	}
+	if _, err := store.Compact(mvcc.CompactRequest{Revision: 2}); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	if err := store.SetAppliedIndex(99); err != nil {
+		t.Fatalf("SetAppliedIndex: %v", err)
+	}
+	data, err := store.Snapshot()
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+
+	restored := New()
+	if err := restored.RestoreSnapshot(data); err != nil {
+		t.Fatalf("RestoreSnapshot: %v", err)
+	}
+	if restored.AppliedIndex() != 99 {
+		t.Fatalf("applied index = %d, want 99", restored.AppliedIndex())
+	}
+	atRevision3 := mustRange(t, restored, mvcc.RangeRequest{Key: []byte("/snap/a"), Revision: 3})
+	if atRevision3.Count != 1 || string(atRevision3.KVs[0].Value) != "a2" {
+		t.Fatalf("restored revision 3 range = %+v", atRevision3)
+	}
+	leases, err := restored.Leases()
+	if err != nil {
+		t.Fatalf("Leases: %v", err)
+	}
+	if len(leases) != 1 || leases[0].LeaseID != 700 || len(leases[0].Keys) != 1 || string(leases[0].Keys[0]) != "/snap/lease" {
+		t.Fatalf("restored leases = %+v", leases)
+	}
+}
+
 func TestApplyTxnComparesAllTargetsAndSelectsBranch(t *testing.T) {
 	store := New()
 	grantLease(t, store, 11, 60)

@@ -12,21 +12,24 @@ import (
 
 // Store 用内存 map 维护 current view，并用 append-only slice 维护 history view。
 type Store struct {
-	mu         sync.RWMutex
-	revision   int64
-	current    map[string]mvcc.KeyValue // key -> KeyValue Struct
-	history    []mvcc.Event
-	leases     map[int64]mvcc.LeaseRecord // leaseID -> LeaseRecord
-	leaseKeys  map[string]int64           // key -> leaseID
-	compactRev int64
+	mu           sync.RWMutex
+	revision     int64
+	appliedIndex uint64
+	current      map[string]mvcc.KeyValue // key -> KeyValue Struct
+	history      []mvcc.Event
+	leases       map[int64]mvcc.LeaseRecord // leaseID -> LeaseRecord
+	leaseKeys    map[string]int64           // key -> leaseID
+	compactRev   int64                      // compact 边界，防止读请求越过已 compact 的历史
+	compactBase  map[string]mvcc.KeyValue
 }
 
 // New 创建一个 in-memory Store，初始 revision 为 0。
 func New() *Store {
 	return &Store{
-		current:   make(map[string]mvcc.KeyValue),
-		leases:    make(map[int64]mvcc.LeaseRecord),
-		leaseKeys: make(map[string]int64),
+		current:     make(map[string]mvcc.KeyValue),
+		leases:      make(map[int64]mvcc.LeaseRecord),
+		leaseKeys:   make(map[string]int64),
+		compactBase: make(map[string]mvcc.KeyValue),
 	}
 }
 
@@ -35,6 +38,23 @@ func (s *Store) CurrentRevision() int64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.revision
+}
+
+// AppliedIndex 返回状态机已经 apply 到的最新 Raft log index。
+func (s *Store) AppliedIndex() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.appliedIndex
+}
+
+// SetAppliedIndex 单调推进状态机 apply 进度，供 restart recovery 跳过已执行 log。
+func (s *Store) SetAppliedIndex(index uint64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if index > s.appliedIndex {
+		s.appliedIndex = index
+	}
+	return nil
 }
 
 // Range 从指定 revision 的 view 中读取单 key 或 [key, end) range。
@@ -212,8 +232,10 @@ func (s *Store) History(req mvcc.HistoryRequest) (mvcc.HistoryResponse, error) {
 	if from <= 0 {
 		from = 1
 	}
+
+	// 检查是否超过 compaction 边界
 	if from <= s.compactRev {
-		return mvcc.HistoryResponse{}, mvcc.ErrInvalidRevision
+		return mvcc.HistoryResponse{Revision: s.compactRev}, mvcc.ErrCompacted
 	}
 	if from > to {
 		return mvcc.HistoryResponse{Revision: s.revision}, nil
@@ -226,6 +248,37 @@ func (s *Store) History(req mvcc.HistoryRequest) (mvcc.HistoryResponse, error) {
 		}
 	}
 	return mvcc.HistoryResponse{Revision: s.revision, Events: events}, nil
+}
+
+// Compact 推进 compact revision，并清理不再可见的旧 history events。
+// compactBase 保存 compact revision 时刻的完整 view，后续仍可还原 compact revision 之后的历史读。
+func (s *Store) Compact(req mvcc.CompactRequest) (mvcc.CompactResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if req.Revision <= 0 {
+		return mvcc.CompactResponse{}, mvcc.ErrInvalidRevision
+	}
+	if req.Revision <= s.compactRev {
+		return mvcc.CompactResponse{Revision: s.compactRev}, mvcc.ErrCompacted
+	}
+	if req.Revision > s.revision {
+		return mvcc.CompactResponse{}, mvcc.ErrFutureRevision
+	}
+
+	// 得到 compact base
+	base := s.viewAtLocked(req.Revision)
+	// 删除 history 中被 compact 的部分
+	history := make([]mvcc.Event, 0, len(s.history))
+	for _, event := range s.history {
+		if event.Revision.Main > req.Revision {
+			history = append(history, mvcc.CloneEvent(event))
+		}
+	}
+	s.compactRev = req.Revision
+	s.compactBase = base
+	s.history = history
+	return mvcc.CompactResponse{Revision: req.Revision}, nil
 }
 
 // Leases 返回当前全部 lease metadata，供 leader expiration loop 扫描。
@@ -287,6 +340,16 @@ func (s *Store) Apply(command mvcc.Command) (mvcc.ApplyResult, error) {
 		}, nil
 	case mvcc.CommandTxn:
 		return s.applyTxn(*command.Txn)
+	case mvcc.CommandCompact:
+		resp, err := s.Compact(mvcc.CompactRequest{Revision: command.Compact.Revision})
+		if err != nil {
+			return mvcc.ApplyResult{Succeeded: false, Err: err}, err
+		}
+		return mvcc.ApplyResult{
+			Revision:  s.CurrentRevision(),
+			Succeeded: true,
+			Compact:   &resp,
+		}, nil
 	case mvcc.CommandLeaseGrant:
 		resp, err := s.leaseGrant(mvcc.LeaseGrantRequest{
 			LeaseID:     command.LeaseGrant.LeaseID,
@@ -321,6 +384,43 @@ func (s *Store) Apply(command mvcc.Command) (mvcc.ApplyResult, error) {
 		err := mvcc.ErrInvalidCommand
 		return mvcc.ApplyResult{Succeeded: false, Err: err}, err
 	}
+}
+
+// Snapshot 导出当前 Store 的逻辑状态，作为 Raft snapshot data。
+func (s *Store) Snapshot() ([]byte, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return mvcc.EncodeSnapshot(mvcc.SnapshotData{
+		Revision:        s.revision,
+		CompactRevision: s.compactRev,
+		AppliedIndex:    s.appliedIndex,
+		Current:         keyValuesFromView(s.current),
+		CompactBase:     keyValuesFromView(s.compactBase),
+		History:         mvcc.CloneEvents(s.history),
+		Leases:          leaseRecordsFromMap(s.leases),
+	})
+}
+
+// RestoreSnapshot 用 Raft snapshot data 覆盖本地 Store 状态。
+func (s *Store) RestoreSnapshot(data []byte) error {
+	snapshot, err := mvcc.DecodeSnapshot(data)
+	if err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.revision = snapshot.Revision
+	s.compactRev = snapshot.CompactRevision
+	s.appliedIndex = snapshot.AppliedIndex
+	s.current = viewFromKeyValues(snapshot.Current)
+	s.compactBase = viewFromKeyValues(snapshot.CompactBase)
+	s.history = mvcc.CloneEvents(snapshot.History)
+	s.leases = leaseMapFromRecords(snapshot.Leases)
+	s.leaseKeys = leaseKeysFromRecords(snapshot.Leases)
+	return nil
 }
 
 func (s *Store) applyTxn(txn mvcc.TxnCommand) (mvcc.ApplyResult, error) {
@@ -515,7 +615,7 @@ func (s *Store) normalizeReadRevisionLocked(revision int64) (int64, error) {
 		return 0, mvcc.ErrFutureRevision
 	}
 	if revision <= s.compactRev {
-		return 0, mvcc.ErrInvalidRevision
+		return 0, mvcc.ErrCompacted
 	}
 	return revision, nil
 }
@@ -527,8 +627,14 @@ func (s *Store) viewAtLocked(revision int64) map[string]mvcc.KeyValue {
 		return cloneCurrent(s.current)
 	}
 	view := make(map[string]mvcc.KeyValue)
+	if s.compactRev > 0 {
+		view = cloneCurrent(s.compactBase)
+	}
 	// 遍历历史事件。
 	for _, event := range s.history {
+		if event.Revision.Main <= s.compactRev {
+			continue
+		}
 		// 只找传入 revision 之前的 event。
 		if event.Revision.Main > revision {
 			break
@@ -565,6 +671,60 @@ func cloneCurrent(current map[string]mvcc.KeyValue) map[string]mvcc.KeyValue {
 		out[key] = mvcc.CloneKeyValue(kv)
 	}
 	return out
+}
+
+func keyValuesFromView(view map[string]mvcc.KeyValue) []mvcc.KeyValue {
+	keys := make([]string, 0, len(view))
+	for key := range view {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return bytes.Compare([]byte(keys[i]), []byte(keys[j])) < 0
+	})
+	kvs := make([]mvcc.KeyValue, 0, len(keys))
+	for _, key := range keys {
+		kvs = append(kvs, mvcc.CloneKeyValue(view[key]))
+	}
+	return kvs
+}
+
+func viewFromKeyValues(kvs []mvcc.KeyValue) map[string]mvcc.KeyValue {
+	view := make(map[string]mvcc.KeyValue, len(kvs))
+	for _, kv := range kvs {
+		view[string(kv.Key)] = mvcc.CloneKeyValue(kv)
+	}
+	return view
+}
+
+func leaseRecordsFromMap(leases map[int64]mvcc.LeaseRecord) []mvcc.LeaseRecord {
+	ids := make([]int64, 0, len(leases))
+	for id := range leases {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	records := make([]mvcc.LeaseRecord, 0, len(ids))
+	for _, id := range ids {
+		records = append(records, mvcc.CloneLeaseRecord(leases[id]))
+	}
+	return records
+}
+
+func leaseMapFromRecords(records []mvcc.LeaseRecord) map[int64]mvcc.LeaseRecord {
+	leases := make(map[int64]mvcc.LeaseRecord, len(records))
+	for _, record := range records {
+		leases[record.LeaseID] = mvcc.CloneLeaseRecord(record)
+	}
+	return leases
+}
+
+func leaseKeysFromRecords(records []mvcc.LeaseRecord) map[string]int64 {
+	leaseKeys := make(map[string]int64)
+	for _, record := range records {
+		for _, key := range record.Keys {
+			leaseKeys[string(key)] = record.LeaseID
+		}
+	}
+	return leaseKeys
 }
 
 var _ mvcc.Store = (*Store)(nil)

@@ -2,14 +2,19 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/HasonoCell/Etcd-Lite/api/etcdlitepb"
+	"github.com/HasonoCell/Etcd-Lite/mvcc"
+	mvccbbolt "github.com/HasonoCell/Etcd-Lite/mvcc/bbolt"
 	mvccmemory "github.com/HasonoCell/Etcd-Lite/mvcc/memory"
 	"github.com/HasonoCell/Etcd-Lite/raft/core"
 	raftmemory "github.com/HasonoCell/Etcd-Lite/raft/storage/memory"
+	raftwal "github.com/HasonoCell/Etcd-Lite/raft/storage/wal"
 	"github.com/HasonoCell/Etcd-Lite/raft/transport/local"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -26,6 +31,7 @@ type testCluster struct {
 	watchClients map[core.MemberID]etcdlitepb.WatchClient
 	leaseClients map[core.MemberID]etcdlitepb.LeaseClient
 	mtClients    map[core.MemberID]etcdlitepb.MaintenanceClient
+	closers      map[core.MemberID]func()
 }
 
 func TestKVRequestsFollowLeaderHintAndUseReadIndex(t *testing.T) {
@@ -203,6 +209,111 @@ func TestWatchReceivesHistoryAndLiveEvents(t *testing.T) {
 	}
 }
 
+func TestCompactRejectsOldWatchAndAdvancesSnapshot(t *testing.T) {
+	c := newTestClusterWithSnapshotThreshold(t, []core.MemberID{1, 2, 3}, 2)
+	defer c.stop()
+
+	leader := c.waitLeader()
+	c.put(leader, &etcdlitepb.PutRequest{
+		Key:       []byte("/compact/a"),
+		Value:     []byte("a1"),
+		ClientId:  600,
+		RequestId: 1,
+	})
+	c.put(leader, &etcdlitepb.PutRequest{
+		Key:       []byte("/compact/b"),
+		Value:     []byte("b1"),
+		ClientId:  600,
+		RequestId: 2,
+	})
+	compact := c.compact(leader, &etcdlitepb.CompactionRequest{
+		Revision:  1,
+		ClientId:  600,
+		RequestId: 3,
+	})
+	if compact.GetCompactRevision() != 1 {
+		t.Fatalf("compact response = %+v", compact)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	oldRange, err := c.kvClients[leader].Range(ctx, &etcdlitepb.RangeRequest{Key: []byte("/compact/a"), Revision: 1})
+	cancel()
+	if err != nil {
+		t.Fatalf("Range compacted revision: %v", err)
+	}
+	if oldRange.GetHeader().GetError() != mvcc.ErrCompacted.Error() {
+		t.Fatalf("compacted range header = %+v", oldRange.GetHeader())
+	}
+
+	ctx, cancel = context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	stream, err := c.watchClients[leader].Watch(ctx, &etcdlitepb.WatchRequest{
+		Key:           []byte("/compact/"),
+		End:           []byte("/compact0"),
+		StartRevision: 0,
+	})
+	if err != nil {
+		t.Fatalf("Watch compacted revision: %v", err)
+	}
+	created := mustRecvWatch(t, stream)
+	if !created.GetCreated() {
+		t.Fatalf("first compacted watch response = %+v, want created", created)
+	}
+	canceled := mustRecvWatch(t, stream)
+	if !canceled.GetCanceled() || canceled.GetCompactRevision() != 1 || canceled.GetError() != mvcc.ErrCompacted.Error() {
+		t.Fatalf("compacted watch cancel = %+v", canceled)
+	}
+
+	c.waitSnapshotAtLeast(leader, compact.GetHeader().GetRaftIndex())
+}
+
+func TestServerRestartsFromSnapshotAndReplaysPostSnapshotWAL(t *testing.T) {
+	ids := []core.MemberID{1, 2, 3}
+	dir := t.TempDir()
+	c := newPersistentTestCluster(t, ids, dir, 2)
+
+	leader := c.waitLeader()
+	c.put(leader, &etcdlitepb.PutRequest{
+		Key:       []byte("/restart/a"),
+		Value:     []byte("a"),
+		ClientId:  610,
+		RequestId: 1,
+	})
+	c.put(leader, &etcdlitepb.PutRequest{
+		Key:       []byte("/restart/b"),
+		Value:     []byte("b"),
+		ClientId:  610,
+		RequestId: 2,
+	})
+	compact := c.compact(leader, &etcdlitepb.CompactionRequest{
+		Revision:  1,
+		ClientId:  610,
+		RequestId: 3,
+	})
+	c.waitSnapshotAtLeast(leader, compact.GetHeader().GetRaftIndex())
+	c.put(leader, &etcdlitepb.PutRequest{
+		Key:       []byte("/restart/c"),
+		Value:     []byte("c"),
+		ClientId:  610,
+		RequestId: 4,
+	})
+	c.stop()
+
+	restarted := newPersistentTestCluster(t, ids, dir, 2)
+	defer restarted.stop()
+	newLeader := restarted.waitLeader()
+	resp := restarted.rangeKV(newLeader, &etcdlitepb.RangeRequest{
+		Key: []byte("/restart/"),
+		End: []byte("/restart0"),
+	})
+	if resp.GetHeader().GetRevision() != 3 || resp.GetCount() != 3 {
+		t.Fatalf("restart range = %+v", resp)
+	}
+	if string(resp.GetKvs()[2].GetValue()) != "c" {
+		t.Fatalf("post snapshot WAL key = %+v", resp.GetKvs())
+	}
+}
+
 func TestLeaseGrantRevokeAndExpirationDeleteKeys(t *testing.T) {
 	c := newTestCluster(t, []core.MemberID{1, 2, 3})
 	defer c.stop()
@@ -292,6 +403,10 @@ func TestMaintenanceStatusReportsRaftAndMVCCState(t *testing.T) {
 }
 
 func newTestCluster(t *testing.T, ids []core.MemberID) *testCluster {
+	return newTestClusterWithSnapshotThreshold(t, ids, 0)
+}
+
+func newTestClusterWithSnapshotThreshold(t *testing.T, ids []core.MemberID, snapshotThreshold uint64) *testCluster {
 	t.Helper()
 	c := &testCluster{
 		t:            t,
@@ -304,6 +419,7 @@ func newTestCluster(t *testing.T, ids []core.MemberID) *testCluster {
 		watchClients: make(map[core.MemberID]etcdlitepb.WatchClient),
 		leaseClients: make(map[core.MemberID]etcdlitepb.LeaseClient),
 		mtClients:    make(map[core.MemberID]etcdlitepb.MaintenanceClient),
+		closers:      make(map[core.MemberID]func()),
 	}
 	for _, id := range ids {
 		node, err := New(Config{
@@ -315,11 +431,62 @@ func newTestCluster(t *testing.T, ids []core.MemberID) *testCluster {
 			ElectionTimeout:   80 * time.Millisecond,
 			HeartbeatInterval: 15 * time.Millisecond,
 			RequestTimeout:    2 * time.Second,
+			SnapshotThreshold: snapshotThreshold,
 		})
 		if err != nil {
 			t.Fatalf("New server %d: %v", id, err)
 		}
 		c.nodes[id] = node
+		c.transport.Register(node.Raft())
+		c.startGRPC(id, node)
+	}
+	return c
+}
+
+func newPersistentTestCluster(t *testing.T, ids []core.MemberID, dir string, snapshotThreshold uint64) *testCluster {
+	t.Helper()
+	c := &testCluster{
+		t:            t,
+		ids:          append([]core.MemberID(nil), ids...),
+		transport:    local.New(),
+		nodes:        make(map[core.MemberID]*Server),
+		grpcServers:  make(map[core.MemberID]*grpc.Server),
+		conns:        make(map[core.MemberID]*grpc.ClientConn),
+		kvClients:    make(map[core.MemberID]etcdlitepb.KVClient),
+		watchClients: make(map[core.MemberID]etcdlitepb.WatchClient),
+		leaseClients: make(map[core.MemberID]etcdlitepb.LeaseClient),
+		mtClients:    make(map[core.MemberID]etcdlitepb.MaintenanceClient),
+		closers:      make(map[core.MemberID]func()),
+	}
+	for _, id := range ids {
+		raftStorage, err := raftwal.Open(filepath.Join(dir, fmt.Sprintf("%d.wal", id)), raftwal.WithSync(false))
+		if err != nil {
+			t.Fatalf("open wal %d: %v", id, err)
+		}
+		store, err := mvccbbolt.Open(filepath.Join(dir, fmt.Sprintf("%d.db", id)))
+		if err != nil {
+			t.Fatalf("open backend %d: %v", id, err)
+		}
+		node, err := New(Config{
+			ID:                id,
+			Peers:             ids,
+			RaftStorage:       raftStorage,
+			RaftTransport:     c.transport,
+			Store:             store,
+			ElectionTimeout:   80 * time.Millisecond,
+			HeartbeatInterval: 15 * time.Millisecond,
+			RequestTimeout:    2 * time.Second,
+			SnapshotThreshold: snapshotThreshold,
+		})
+		if err != nil {
+			_ = store.Close()
+			t.Fatalf("New persistent server %d: %v", id, err)
+		}
+		c.nodes[id] = node
+		backend := store
+		c.closers[id] = func() {
+			_ = backend.Close()
+		}
 		c.transport.Register(node.Raft())
 		c.startGRPC(id, node)
 	}
@@ -363,6 +530,10 @@ func (c *testCluster) stop() {
 	for id, node := range c.nodes {
 		node.Stop()
 		c.transport.Unregister(id)
+	}
+	for id, closeStore := range c.closers {
+		closeStore()
+		delete(c.closers, id)
 	}
 }
 
@@ -478,6 +649,26 @@ func (c *testCluster) txn(start core.MemberID, req *etcdlitepb.TxnRequest) *etcd
 	return nil
 }
 
+func (c *testCluster) compact(start core.MemberID, req *etcdlitepb.CompactionRequest) *etcdlitepb.CompactionResponse {
+	c.t.Helper()
+	current := start
+	for i := 0; i < 8; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		resp, err := c.kvClients[current].Compact(ctx, req)
+		cancel()
+		if err != nil {
+			c.t.Fatalf("Compact through %d: %v", current, err)
+		}
+		if resp.GetHeader().GetError() == "" {
+			return resp
+		}
+		current = c.nextAttempt(current, resp.GetHeader())
+		time.Sleep(20 * time.Millisecond)
+	}
+	c.t.Fatalf("Compact did not reach leader")
+	return nil
+}
+
 func (c *testCluster) leaseGrant(start core.MemberID, req *etcdlitepb.LeaseGrantRequest) *etcdlitepb.LeaseGrantResponse {
 	c.t.Helper()
 	current := start
@@ -516,6 +707,24 @@ func (c *testCluster) leaseRevoke(start core.MemberID, req *etcdlitepb.LeaseRevo
 	}
 	c.t.Fatalf("LeaseRevoke did not reach leader")
 	return nil
+}
+
+func (c *testCluster) waitSnapshotAtLeast(id core.MemberID, index uint64) {
+	c.t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		status, err := c.mtClients[id].Status(ctx, &etcdlitepb.StatusRequest{})
+		cancel()
+		if err != nil {
+			c.t.Fatalf("Status through %d: %v", id, err)
+		}
+		if status.GetSnapshotIndex() >= index {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	c.t.Fatalf("snapshot index on %d did not reach %d", id, index)
 }
 
 func (c *testCluster) nextAttempt(current core.MemberID, header *etcdlitepb.ResponseHeader) core.MemberID {

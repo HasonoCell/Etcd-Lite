@@ -10,6 +10,7 @@ var (
 	ErrInvalidRange       = errors.New("mvcc: invalid key range")
 	ErrFutureRevision     = errors.New("mvcc: future revision")
 	ErrInvalidRevision    = errors.New("mvcc: invalid revision")
+	ErrCompacted          = errors.New("mvcc: required revision has been compacted")
 	ErrInvalidCommand     = errors.New("mvcc: invalid command")
 	ErrUnsupportedCommand = errors.New("mvcc: unsupported command")
 	ErrLeaseNotFound      = errors.New("mvcc: lease not found")
@@ -112,6 +113,15 @@ type HistoryResponse struct {
 	Events   []Event
 }
 
+// 即把 <= revision 的历史变更压缩
+type CompactRequest struct {
+	Revision int64
+}
+
+type CompactResponse struct {
+	Revision int64
+}
+
 type LeaseRecord struct {
 	LeaseID          int64    `json:"lease_id"`
 	TTL              int64    `json:"ttl"`                 // lease 租约时长
@@ -154,12 +164,17 @@ type LeaseRevokeResponse struct {
 
 type Store interface {
 	CurrentRevision() int64
+	AppliedIndex() uint64
+	SetAppliedIndex(uint64) error
 	Range(RangeRequest) (RangeResponse, error)
 	Put(PutRequest) (PutResponse, error)
 	DeleteRange(DeleteRangeRequest) (DeleteRangeResponse, error)
 	History(HistoryRequest) (HistoryResponse, error)
+	Compact(CompactRequest) (CompactResponse, error)
 	Leases() ([]LeaseRecord, error)
 	Apply(Command) (ApplyResult, error)
+	Snapshot() ([]byte, error)
+	RestoreSnapshot([]byte) error
 }
 
 func ValidateKeyRange(key []byte, end []byte) error {

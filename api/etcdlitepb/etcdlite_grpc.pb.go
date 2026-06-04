@@ -23,6 +23,7 @@ const (
 	KV_Put_FullMethodName         = "/etcdlite.v1.KV/Put"
 	KV_DeleteRange_FullMethodName = "/etcdlite.v1.KV/DeleteRange"
 	KV_Txn_FullMethodName         = "/etcdlite.v1.KV/Txn"
+	KV_Compact_FullMethodName     = "/etcdlite.v1.KV/Compact"
 )
 
 // KVClient is the client API for KV service.
@@ -33,6 +34,7 @@ type KVClient interface {
 	Put(ctx context.Context, in *PutRequest, opts ...grpc.CallOption) (*PutResponse, error)
 	DeleteRange(ctx context.Context, in *DeleteRangeRequest, opts ...grpc.CallOption) (*DeleteRangeResponse, error)
 	Txn(ctx context.Context, in *TxnRequest, opts ...grpc.CallOption) (*TxnResponse, error)
+	Compact(ctx context.Context, in *CompactionRequest, opts ...grpc.CallOption) (*CompactionResponse, error)
 }
 
 type kVClient struct {
@@ -83,6 +85,16 @@ func (c *kVClient) Txn(ctx context.Context, in *TxnRequest, opts ...grpc.CallOpt
 	return out, nil
 }
 
+func (c *kVClient) Compact(ctx context.Context, in *CompactionRequest, opts ...grpc.CallOption) (*CompactionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CompactionResponse)
+	err := c.cc.Invoke(ctx, KV_Compact_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // KVServer is the server API for KV service.
 // All implementations must embed UnimplementedKVServer
 // for forward compatibility.
@@ -91,6 +103,7 @@ type KVServer interface {
 	Put(context.Context, *PutRequest) (*PutResponse, error)
 	DeleteRange(context.Context, *DeleteRangeRequest) (*DeleteRangeResponse, error)
 	Txn(context.Context, *TxnRequest) (*TxnResponse, error)
+	Compact(context.Context, *CompactionRequest) (*CompactionResponse, error)
 	mustEmbedUnimplementedKVServer()
 }
 
@@ -112,6 +125,9 @@ func (UnimplementedKVServer) DeleteRange(context.Context, *DeleteRangeRequest) (
 }
 func (UnimplementedKVServer) Txn(context.Context, *TxnRequest) (*TxnResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Txn not implemented")
+}
+func (UnimplementedKVServer) Compact(context.Context, *CompactionRequest) (*CompactionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Compact not implemented")
 }
 func (UnimplementedKVServer) mustEmbedUnimplementedKVServer() {}
 func (UnimplementedKVServer) testEmbeddedByValue()            {}
@@ -206,6 +222,24 @@ func _KV_Txn_Handler(srv interface{}, ctx context.Context, dec func(interface{})
 	return interceptor(ctx, in, info, handler)
 }
 
+func _KV_Compact_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompactionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KVServer).Compact(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KV_Compact_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KVServer).Compact(ctx, req.(*CompactionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // KV_ServiceDesc is the grpc.ServiceDesc for KV service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -228,6 +262,10 @@ var KV_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Txn",
 			Handler:    _KV_Txn_Handler,
+		},
+		{
+			MethodName: "Compact",
+			Handler:    _KV_Compact_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

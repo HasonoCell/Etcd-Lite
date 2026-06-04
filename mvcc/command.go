@@ -16,6 +16,7 @@ const (
 	CommandPut            CommandKind = "put"
 	CommandDeleteRange    CommandKind = "delete_range"
 	CommandTxn            CommandKind = "txn"
+	CommandCompact        CommandKind = "compact"
 	CommandLeaseGrant     CommandKind = "lease_grant"
 	CommandLeaseKeepAlive CommandKind = "lease_keep_alive"
 	CommandLeaseRevoke    CommandKind = "lease_revoke"
@@ -28,6 +29,7 @@ type Command struct {
 	Put            *PutCommand            `json:"put,omitempty"`
 	DeleteRange    *DeleteRangeCommand    `json:"delete_range,omitempty"`
 	Txn            *TxnCommand            `json:"txn,omitempty"`
+	Compact        *CompactCommand        `json:"compact,omitempty"`
 	LeaseGrant     *LeaseGrantCommand     `json:"lease_grant,omitempty"`
 	LeaseKeepAlive *LeaseKeepAliveCommand `json:"lease_keep_alive,omitempty"`
 	LeaseRevoke    *LeaseRevokeCommand    `json:"lease_revoke,omitempty"`
@@ -50,6 +52,10 @@ type LeaseGrantCommand struct {
 	LeaseID     int64 `json:"lease_id"`
 	TTL         int64 `json:"ttl"`
 	NowUnixNano int64 `json:"now_unix_nano"`
+}
+
+type CompactCommand struct {
+	Revision int64 `json:"revision"`
 }
 
 type LeaseKeepAliveCommand struct {
@@ -127,6 +133,7 @@ type ApplyResult struct {
 	Succeeded      bool
 	Responses      []OpResponse
 	Events         []Event
+	Compact        *CompactResponse
 	LeaseGrant     *LeaseGrantResponse
 	LeaseKeepAlive *LeaseKeepAliveResponse
 	LeaseRevoke    *LeaseRevokeResponse
@@ -168,6 +175,11 @@ func (c Command) Validate() error {
 			return ErrInvalidCommand
 		}
 		return ValidateTxnCommand(*c.Txn)
+	case CommandCompact:
+		if c.Compact == nil || c.Compact.Revision <= 0 {
+			return ErrInvalidRevision
+		}
+		return nil
 	case CommandLeaseGrant:
 		if c.LeaseGrant == nil || c.LeaseGrant.LeaseID <= 0 || c.LeaseGrant.TTL <= 0 || c.LeaseGrant.NowUnixNano <= 0 {
 			return ErrInvalidLease

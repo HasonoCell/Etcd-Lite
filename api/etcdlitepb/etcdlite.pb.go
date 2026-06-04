@@ -1319,6 +1319,118 @@ func (x *TxnResponse) GetResponses() []*ResponseOp {
 	return nil
 }
 
+type CompactionRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Revision      int64                  `protobuf:"varint,1,opt,name=revision,proto3" json:"revision,omitempty"`
+	ClientId      uint64                 `protobuf:"varint,2,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	RequestId     uint64                 `protobuf:"varint,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CompactionRequest) Reset() {
+	*x = CompactionRequest{}
+	mi := &file_etcdlite_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompactionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompactionRequest) ProtoMessage() {}
+
+func (x *CompactionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_etcdlite_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompactionRequest.ProtoReflect.Descriptor instead.
+func (*CompactionRequest) Descriptor() ([]byte, []int) {
+	return file_etcdlite_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *CompactionRequest) GetRevision() int64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+func (x *CompactionRequest) GetClientId() uint64 {
+	if x != nil {
+		return x.ClientId
+	}
+	return 0
+}
+
+func (x *CompactionRequest) GetRequestId() uint64 {
+	if x != nil {
+		return x.RequestId
+	}
+	return 0
+}
+
+type CompactionResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Header          *ResponseHeader        `protobuf:"bytes,1,opt,name=header,proto3" json:"header,omitempty"`
+	CompactRevision int64                  `protobuf:"varint,2,opt,name=compact_revision,json=compactRevision,proto3" json:"compact_revision,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *CompactionResponse) Reset() {
+	*x = CompactionResponse{}
+	mi := &file_etcdlite_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompactionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompactionResponse) ProtoMessage() {}
+
+func (x *CompactionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_etcdlite_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompactionResponse.ProtoReflect.Descriptor instead.
+func (*CompactionResponse) Descriptor() ([]byte, []int) {
+	return file_etcdlite_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *CompactionResponse) GetHeader() *ResponseHeader {
+	if x != nil {
+		return x.Header
+	}
+	return nil
+}
+
+func (x *CompactionResponse) GetCompactRevision() int64 {
+	if x != nil {
+		return x.CompactRevision
+	}
+	return 0
+}
+
 type WatchRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Key           []byte                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
@@ -1331,7 +1443,7 @@ type WatchRequest struct {
 
 func (x *WatchRequest) Reset() {
 	*x = WatchRequest{}
-	mi := &file_etcdlite_proto_msgTypes[15]
+	mi := &file_etcdlite_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1343,7 +1455,7 @@ func (x *WatchRequest) String() string {
 func (*WatchRequest) ProtoMessage() {}
 
 func (x *WatchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[15]
+	mi := &file_etcdlite_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1356,7 +1468,7 @@ func (x *WatchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchRequest.ProtoReflect.Descriptor instead.
 func (*WatchRequest) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{15}
+	return file_etcdlite_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *WatchRequest) GetKey() []byte {
@@ -1402,7 +1514,7 @@ type WatchResponse struct {
 
 func (x *WatchResponse) Reset() {
 	*x = WatchResponse{}
-	mi := &file_etcdlite_proto_msgTypes[16]
+	mi := &file_etcdlite_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1414,7 +1526,7 @@ func (x *WatchResponse) String() string {
 func (*WatchResponse) ProtoMessage() {}
 
 func (x *WatchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[16]
+	mi := &file_etcdlite_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1427,7 +1539,7 @@ func (x *WatchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchResponse.ProtoReflect.Descriptor instead.
 func (*WatchResponse) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{16}
+	return file_etcdlite_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *WatchResponse) GetHeader() *ResponseHeader {
@@ -1491,7 +1603,7 @@ type LeaseGrantRequest struct {
 
 func (x *LeaseGrantRequest) Reset() {
 	*x = LeaseGrantRequest{}
-	mi := &file_etcdlite_proto_msgTypes[17]
+	mi := &file_etcdlite_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1503,7 +1615,7 @@ func (x *LeaseGrantRequest) String() string {
 func (*LeaseGrantRequest) ProtoMessage() {}
 
 func (x *LeaseGrantRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[17]
+	mi := &file_etcdlite_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1516,7 +1628,7 @@ func (x *LeaseGrantRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaseGrantRequest.ProtoReflect.Descriptor instead.
 func (*LeaseGrantRequest) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{17}
+	return file_etcdlite_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *LeaseGrantRequest) GetLeaseId() int64 {
@@ -1558,7 +1670,7 @@ type LeaseGrantResponse struct {
 
 func (x *LeaseGrantResponse) Reset() {
 	*x = LeaseGrantResponse{}
-	mi := &file_etcdlite_proto_msgTypes[18]
+	mi := &file_etcdlite_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1570,7 +1682,7 @@ func (x *LeaseGrantResponse) String() string {
 func (*LeaseGrantResponse) ProtoMessage() {}
 
 func (x *LeaseGrantResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[18]
+	mi := &file_etcdlite_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1583,7 +1695,7 @@ func (x *LeaseGrantResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaseGrantResponse.ProtoReflect.Descriptor instead.
 func (*LeaseGrantResponse) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{18}
+	return file_etcdlite_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *LeaseGrantResponse) GetHeader() *ResponseHeader {
@@ -1618,7 +1730,7 @@ type LeaseKeepAliveRequest struct {
 
 func (x *LeaseKeepAliveRequest) Reset() {
 	*x = LeaseKeepAliveRequest{}
-	mi := &file_etcdlite_proto_msgTypes[19]
+	mi := &file_etcdlite_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1630,7 +1742,7 @@ func (x *LeaseKeepAliveRequest) String() string {
 func (*LeaseKeepAliveRequest) ProtoMessage() {}
 
 func (x *LeaseKeepAliveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[19]
+	mi := &file_etcdlite_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1643,7 +1755,7 @@ func (x *LeaseKeepAliveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaseKeepAliveRequest.ProtoReflect.Descriptor instead.
 func (*LeaseKeepAliveRequest) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{19}
+	return file_etcdlite_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *LeaseKeepAliveRequest) GetLeaseId() int64 {
@@ -1678,7 +1790,7 @@ type LeaseKeepAliveResponse struct {
 
 func (x *LeaseKeepAliveResponse) Reset() {
 	*x = LeaseKeepAliveResponse{}
-	mi := &file_etcdlite_proto_msgTypes[20]
+	mi := &file_etcdlite_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1690,7 +1802,7 @@ func (x *LeaseKeepAliveResponse) String() string {
 func (*LeaseKeepAliveResponse) ProtoMessage() {}
 
 func (x *LeaseKeepAliveResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[20]
+	mi := &file_etcdlite_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1703,7 +1815,7 @@ func (x *LeaseKeepAliveResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaseKeepAliveResponse.ProtoReflect.Descriptor instead.
 func (*LeaseKeepAliveResponse) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{20}
+	return file_etcdlite_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *LeaseKeepAliveResponse) GetHeader() *ResponseHeader {
@@ -1738,7 +1850,7 @@ type LeaseRevokeRequest struct {
 
 func (x *LeaseRevokeRequest) Reset() {
 	*x = LeaseRevokeRequest{}
-	mi := &file_etcdlite_proto_msgTypes[21]
+	mi := &file_etcdlite_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1750,7 +1862,7 @@ func (x *LeaseRevokeRequest) String() string {
 func (*LeaseRevokeRequest) ProtoMessage() {}
 
 func (x *LeaseRevokeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[21]
+	mi := &file_etcdlite_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1763,7 +1875,7 @@ func (x *LeaseRevokeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaseRevokeRequest.ProtoReflect.Descriptor instead.
 func (*LeaseRevokeRequest) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{21}
+	return file_etcdlite_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *LeaseRevokeRequest) GetLeaseId() int64 {
@@ -1797,7 +1909,7 @@ type LeaseRevokeResponse struct {
 
 func (x *LeaseRevokeResponse) Reset() {
 	*x = LeaseRevokeResponse{}
-	mi := &file_etcdlite_proto_msgTypes[22]
+	mi := &file_etcdlite_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1809,7 +1921,7 @@ func (x *LeaseRevokeResponse) String() string {
 func (*LeaseRevokeResponse) ProtoMessage() {}
 
 func (x *LeaseRevokeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[22]
+	mi := &file_etcdlite_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1822,7 +1934,7 @@ func (x *LeaseRevokeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaseRevokeResponse.ProtoReflect.Descriptor instead.
 func (*LeaseRevokeResponse) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{22}
+	return file_etcdlite_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *LeaseRevokeResponse) GetHeader() *ResponseHeader {
@@ -1847,7 +1959,7 @@ type StatusRequest struct {
 
 func (x *StatusRequest) Reset() {
 	*x = StatusRequest{}
-	mi := &file_etcdlite_proto_msgTypes[23]
+	mi := &file_etcdlite_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1859,7 +1971,7 @@ func (x *StatusRequest) String() string {
 func (*StatusRequest) ProtoMessage() {}
 
 func (x *StatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[23]
+	mi := &file_etcdlite_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1872,7 +1984,7 @@ func (x *StatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusRequest.ProtoReflect.Descriptor instead.
 func (*StatusRequest) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{23}
+	return file_etcdlite_proto_rawDescGZIP(), []int{25}
 }
 
 type StatusResponse struct {
@@ -1889,7 +2001,7 @@ type StatusResponse struct {
 
 func (x *StatusResponse) Reset() {
 	*x = StatusResponse{}
-	mi := &file_etcdlite_proto_msgTypes[24]
+	mi := &file_etcdlite_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1901,7 +2013,7 @@ func (x *StatusResponse) String() string {
 func (*StatusResponse) ProtoMessage() {}
 
 func (x *StatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[24]
+	mi := &file_etcdlite_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1914,7 +2026,7 @@ func (x *StatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusResponse.ProtoReflect.Descriptor instead.
 func (*StatusResponse) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{24}
+	return file_etcdlite_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *StatusResponse) GetHeader() *ResponseHeader {
@@ -2054,7 +2166,15 @@ const file_etcdlite_proto_rawDesc = "" +
 	"\vTxnResponse\x123\n" +
 	"\x06header\x18\x01 \x01(\v2\x1b.etcdlite.v1.ResponseHeaderR\x06header\x12\x1c\n" +
 	"\tsucceeded\x18\x02 \x01(\bR\tsucceeded\x125\n" +
-	"\tresponses\x18\x03 \x03(\v2\x17.etcdlite.v1.ResponseOpR\tresponses\"r\n" +
+	"\tresponses\x18\x03 \x03(\v2\x17.etcdlite.v1.ResponseOpR\tresponses\"k\n" +
+	"\x11CompactionRequest\x12\x1a\n" +
+	"\brevision\x18\x01 \x01(\x03R\brevision\x12\x1b\n" +
+	"\tclient_id\x18\x02 \x01(\x04R\bclientId\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x03 \x01(\x04R\trequestId\"t\n" +
+	"\x12CompactionResponse\x123\n" +
+	"\x06header\x18\x01 \x01(\v2\x1b.etcdlite.v1.ResponseHeaderR\x06header\x12)\n" +
+	"\x10compact_revision\x18\x02 \x01(\x03R\x0fcompactRevision\"r\n" +
 	"\fWatchRequest\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\fR\x03key\x12\x10\n" +
 	"\x03end\x18\x02 \x01(\fR\x03end\x12%\n" +
@@ -2119,12 +2239,13 @@ const file_etcdlite_proto_rawDesc = "" +
 	"\x14COMPARE_RESULT_EQUAL\x10\x01\x12\x1c\n" +
 	"\x18COMPARE_RESULT_NOT_EQUAL\x10\x02\x12\x1a\n" +
 	"\x16COMPARE_RESULT_GREATER\x10\x03\x12\x17\n" +
-	"\x13COMPARE_RESULT_LESS\x10\x042\x8a\x02\n" +
+	"\x13COMPARE_RESULT_LESS\x10\x042\xd6\x02\n" +
 	"\x02KV\x12>\n" +
 	"\x05Range\x12\x19.etcdlite.v1.RangeRequest\x1a\x1a.etcdlite.v1.RangeResponse\x128\n" +
 	"\x03Put\x12\x17.etcdlite.v1.PutRequest\x1a\x18.etcdlite.v1.PutResponse\x12P\n" +
 	"\vDeleteRange\x12\x1f.etcdlite.v1.DeleteRangeRequest\x1a .etcdlite.v1.DeleteRangeResponse\x128\n" +
-	"\x03Txn\x12\x17.etcdlite.v1.TxnRequest\x1a\x18.etcdlite.v1.TxnResponse2I\n" +
+	"\x03Txn\x12\x17.etcdlite.v1.TxnRequest\x1a\x18.etcdlite.v1.TxnResponse\x12J\n" +
+	"\aCompact\x12\x1e.etcdlite.v1.CompactionRequest\x1a\x1f.etcdlite.v1.CompactionResponse2I\n" +
 	"\x05Watch\x12@\n" +
 	"\x05Watch\x12\x19.etcdlite.v1.WatchRequest\x1a\x1a.etcdlite.v1.WatchResponse0\x012\x87\x02\n" +
 	"\x05Lease\x12M\n" +
@@ -2148,7 +2269,7 @@ func file_etcdlite_proto_rawDescGZIP() []byte {
 }
 
 var file_etcdlite_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_etcdlite_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_etcdlite_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_etcdlite_proto_goTypes = []any{
 	(EventType)(0),                 // 0: etcdlite.v1.EventType
 	(CompareTarget)(0),             // 1: etcdlite.v1.CompareTarget
@@ -2168,16 +2289,18 @@ var file_etcdlite_proto_goTypes = []any{
 	(*ResponseOp)(nil),             // 15: etcdlite.v1.ResponseOp
 	(*TxnRequest)(nil),             // 16: etcdlite.v1.TxnRequest
 	(*TxnResponse)(nil),            // 17: etcdlite.v1.TxnResponse
-	(*WatchRequest)(nil),           // 18: etcdlite.v1.WatchRequest
-	(*WatchResponse)(nil),          // 19: etcdlite.v1.WatchResponse
-	(*LeaseGrantRequest)(nil),      // 20: etcdlite.v1.LeaseGrantRequest
-	(*LeaseGrantResponse)(nil),     // 21: etcdlite.v1.LeaseGrantResponse
-	(*LeaseKeepAliveRequest)(nil),  // 22: etcdlite.v1.LeaseKeepAliveRequest
-	(*LeaseKeepAliveResponse)(nil), // 23: etcdlite.v1.LeaseKeepAliveResponse
-	(*LeaseRevokeRequest)(nil),     // 24: etcdlite.v1.LeaseRevokeRequest
-	(*LeaseRevokeResponse)(nil),    // 25: etcdlite.v1.LeaseRevokeResponse
-	(*StatusRequest)(nil),          // 26: etcdlite.v1.StatusRequest
-	(*StatusResponse)(nil),         // 27: etcdlite.v1.StatusResponse
+	(*CompactionRequest)(nil),      // 18: etcdlite.v1.CompactionRequest
+	(*CompactionResponse)(nil),     // 19: etcdlite.v1.CompactionResponse
+	(*WatchRequest)(nil),           // 20: etcdlite.v1.WatchRequest
+	(*WatchResponse)(nil),          // 21: etcdlite.v1.WatchResponse
+	(*LeaseGrantRequest)(nil),      // 22: etcdlite.v1.LeaseGrantRequest
+	(*LeaseGrantResponse)(nil),     // 23: etcdlite.v1.LeaseGrantResponse
+	(*LeaseKeepAliveRequest)(nil),  // 24: etcdlite.v1.LeaseKeepAliveRequest
+	(*LeaseKeepAliveResponse)(nil), // 25: etcdlite.v1.LeaseKeepAliveResponse
+	(*LeaseRevokeRequest)(nil),     // 26: etcdlite.v1.LeaseRevokeRequest
+	(*LeaseRevokeResponse)(nil),    // 27: etcdlite.v1.LeaseRevokeResponse
+	(*StatusRequest)(nil),          // 28: etcdlite.v1.StatusRequest
+	(*StatusResponse)(nil),         // 29: etcdlite.v1.StatusResponse
 }
 var file_etcdlite_proto_depIdxs = []int32{
 	0,  // 0: etcdlite.v1.Event.type:type_name -> etcdlite.v1.EventType
@@ -2203,35 +2326,38 @@ var file_etcdlite_proto_depIdxs = []int32{
 	14, // 20: etcdlite.v1.TxnRequest.failure:type_name -> etcdlite.v1.RequestOp
 	3,  // 21: etcdlite.v1.TxnResponse.header:type_name -> etcdlite.v1.ResponseHeader
 	15, // 22: etcdlite.v1.TxnResponse.responses:type_name -> etcdlite.v1.ResponseOp
-	3,  // 23: etcdlite.v1.WatchResponse.header:type_name -> etcdlite.v1.ResponseHeader
-	6,  // 24: etcdlite.v1.WatchResponse.events:type_name -> etcdlite.v1.Event
-	3,  // 25: etcdlite.v1.LeaseGrantResponse.header:type_name -> etcdlite.v1.ResponseHeader
-	3,  // 26: etcdlite.v1.LeaseKeepAliveResponse.header:type_name -> etcdlite.v1.ResponseHeader
-	3,  // 27: etcdlite.v1.LeaseRevokeResponse.header:type_name -> etcdlite.v1.ResponseHeader
-	3,  // 28: etcdlite.v1.StatusResponse.header:type_name -> etcdlite.v1.ResponseHeader
-	7,  // 29: etcdlite.v1.KV.Range:input_type -> etcdlite.v1.RangeRequest
-	9,  // 30: etcdlite.v1.KV.Put:input_type -> etcdlite.v1.PutRequest
-	11, // 31: etcdlite.v1.KV.DeleteRange:input_type -> etcdlite.v1.DeleteRangeRequest
-	16, // 32: etcdlite.v1.KV.Txn:input_type -> etcdlite.v1.TxnRequest
-	18, // 33: etcdlite.v1.Watch.Watch:input_type -> etcdlite.v1.WatchRequest
-	20, // 34: etcdlite.v1.Lease.LeaseGrant:input_type -> etcdlite.v1.LeaseGrantRequest
-	22, // 35: etcdlite.v1.Lease.LeaseKeepAlive:input_type -> etcdlite.v1.LeaseKeepAliveRequest
-	24, // 36: etcdlite.v1.Lease.LeaseRevoke:input_type -> etcdlite.v1.LeaseRevokeRequest
-	26, // 37: etcdlite.v1.Maintenance.Status:input_type -> etcdlite.v1.StatusRequest
-	8,  // 38: etcdlite.v1.KV.Range:output_type -> etcdlite.v1.RangeResponse
-	10, // 39: etcdlite.v1.KV.Put:output_type -> etcdlite.v1.PutResponse
-	12, // 40: etcdlite.v1.KV.DeleteRange:output_type -> etcdlite.v1.DeleteRangeResponse
-	17, // 41: etcdlite.v1.KV.Txn:output_type -> etcdlite.v1.TxnResponse
-	19, // 42: etcdlite.v1.Watch.Watch:output_type -> etcdlite.v1.WatchResponse
-	21, // 43: etcdlite.v1.Lease.LeaseGrant:output_type -> etcdlite.v1.LeaseGrantResponse
-	23, // 44: etcdlite.v1.Lease.LeaseKeepAlive:output_type -> etcdlite.v1.LeaseKeepAliveResponse
-	25, // 45: etcdlite.v1.Lease.LeaseRevoke:output_type -> etcdlite.v1.LeaseRevokeResponse
-	27, // 46: etcdlite.v1.Maintenance.Status:output_type -> etcdlite.v1.StatusResponse
-	38, // [38:47] is the sub-list for method output_type
-	29, // [29:38] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	3,  // 23: etcdlite.v1.CompactionResponse.header:type_name -> etcdlite.v1.ResponseHeader
+	3,  // 24: etcdlite.v1.WatchResponse.header:type_name -> etcdlite.v1.ResponseHeader
+	6,  // 25: etcdlite.v1.WatchResponse.events:type_name -> etcdlite.v1.Event
+	3,  // 26: etcdlite.v1.LeaseGrantResponse.header:type_name -> etcdlite.v1.ResponseHeader
+	3,  // 27: etcdlite.v1.LeaseKeepAliveResponse.header:type_name -> etcdlite.v1.ResponseHeader
+	3,  // 28: etcdlite.v1.LeaseRevokeResponse.header:type_name -> etcdlite.v1.ResponseHeader
+	3,  // 29: etcdlite.v1.StatusResponse.header:type_name -> etcdlite.v1.ResponseHeader
+	7,  // 30: etcdlite.v1.KV.Range:input_type -> etcdlite.v1.RangeRequest
+	9,  // 31: etcdlite.v1.KV.Put:input_type -> etcdlite.v1.PutRequest
+	11, // 32: etcdlite.v1.KV.DeleteRange:input_type -> etcdlite.v1.DeleteRangeRequest
+	16, // 33: etcdlite.v1.KV.Txn:input_type -> etcdlite.v1.TxnRequest
+	18, // 34: etcdlite.v1.KV.Compact:input_type -> etcdlite.v1.CompactionRequest
+	20, // 35: etcdlite.v1.Watch.Watch:input_type -> etcdlite.v1.WatchRequest
+	22, // 36: etcdlite.v1.Lease.LeaseGrant:input_type -> etcdlite.v1.LeaseGrantRequest
+	24, // 37: etcdlite.v1.Lease.LeaseKeepAlive:input_type -> etcdlite.v1.LeaseKeepAliveRequest
+	26, // 38: etcdlite.v1.Lease.LeaseRevoke:input_type -> etcdlite.v1.LeaseRevokeRequest
+	28, // 39: etcdlite.v1.Maintenance.Status:input_type -> etcdlite.v1.StatusRequest
+	8,  // 40: etcdlite.v1.KV.Range:output_type -> etcdlite.v1.RangeResponse
+	10, // 41: etcdlite.v1.KV.Put:output_type -> etcdlite.v1.PutResponse
+	12, // 42: etcdlite.v1.KV.DeleteRange:output_type -> etcdlite.v1.DeleteRangeResponse
+	17, // 43: etcdlite.v1.KV.Txn:output_type -> etcdlite.v1.TxnResponse
+	19, // 44: etcdlite.v1.KV.Compact:output_type -> etcdlite.v1.CompactionResponse
+	21, // 45: etcdlite.v1.Watch.Watch:output_type -> etcdlite.v1.WatchResponse
+	23, // 46: etcdlite.v1.Lease.LeaseGrant:output_type -> etcdlite.v1.LeaseGrantResponse
+	25, // 47: etcdlite.v1.Lease.LeaseKeepAlive:output_type -> etcdlite.v1.LeaseKeepAliveResponse
+	27, // 48: etcdlite.v1.Lease.LeaseRevoke:output_type -> etcdlite.v1.LeaseRevokeResponse
+	29, // 49: etcdlite.v1.Maintenance.Status:output_type -> etcdlite.v1.StatusResponse
+	40, // [40:50] is the sub-list for method output_type
+	30, // [30:40] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_etcdlite_proto_init() }
@@ -2255,7 +2381,7 @@ func file_etcdlite_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_etcdlite_proto_rawDesc), len(file_etcdlite_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   25,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   4,
 		},

@@ -9,6 +9,7 @@ service KV {
   rpc Put(PutRequest) returns (PutResponse);
   rpc DeleteRange(DeleteRangeRequest) returns (DeleteRangeResponse);
   rpc Txn(TxnRequest) returns (TxnResponse);
+  rpc Compact(CompactionRequest) returns (CompactionResponse);
 }
 
 service Watch {
@@ -160,6 +161,17 @@ message TxnResponse {
   ResponseHeader header = 1;
   bool succeeded = 2;
   repeated ResponseOp responses = 3;
+}
+
+message CompactionRequest {
+  int64 revision = 1;
+  uint64 client_id = 2;
+  uint64 request_id = 3;
+}
+
+message CompactionResponse {
+  ResponseHeader header = 1;
+  int64 compact_revision = 2;
 }
 
 message WatchRequest {
