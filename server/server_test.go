@@ -21,7 +21,7 @@ import (
 )
 
 type testCluster struct {
-	t            *testing.T
+	t            testing.TB
 	ids          []core.MemberID
 	transport    *local.Transport
 	nodes        map[core.MemberID]*Server
@@ -402,11 +402,46 @@ func TestMaintenanceStatusReportsRaftAndMVCCState(t *testing.T) {
 	}
 }
 
-func newTestCluster(t *testing.T, ids []core.MemberID) *testCluster {
+func TestMetricsSnapshotRecordsRequestsAndApplies(t *testing.T) {
+	c := newTestCluster(t, []core.MemberID{1, 2, 3})
+	defer c.stop()
+
+	leader := c.waitLeader()
+	c.put(leader, &etcdlitepb.PutRequest{
+		Key:       []byte("/metrics/key"),
+		Value:     []byte("ok"),
+		ClientId:  700,
+		RequestId: 1,
+	})
+	c.rangeKV(leader, &etcdlitepb.RangeRequest{Key: []byte("/metrics/key")})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	_, err := c.mtClients[leader].Status(ctx, &etcdlitepb.StatusRequest{})
+	cancel()
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+
+	snapshot := c.nodes[leader].MetricsSnapshot()
+	if snapshot.MemberID != uint64(leader) || snapshot.State != core.StateLeader.String() {
+		t.Fatalf("metrics identity = member %d state %q", snapshot.MemberID, snapshot.State)
+	}
+	if snapshot.Revision != 1 {
+		t.Fatalf("metrics revision = %d, want 1", snapshot.Revision)
+	}
+	if snapshot.Requests["put"] == 0 || snapshot.Requests["range"] == 0 || snapshot.Requests["status"] == 0 {
+		t.Fatalf("metrics requests = %+v, want put/range/status", snapshot.Requests)
+	}
+	if snapshot.Applies[string(mvcc.CommandPut)] == 0 {
+		t.Fatalf("metrics applies = %+v, want put apply", snapshot.Applies)
+	}
+}
+
+func newTestCluster(t testing.TB, ids []core.MemberID) *testCluster {
 	return newTestClusterWithSnapshotThreshold(t, ids, 0)
 }
 
-func newTestClusterWithSnapshotThreshold(t *testing.T, ids []core.MemberID, snapshotThreshold uint64) *testCluster {
+func newTestClusterWithSnapshotThreshold(t testing.TB, ids []core.MemberID, snapshotThreshold uint64) *testCluster {
 	t.Helper()
 	c := &testCluster{
 		t:            t,
@@ -443,7 +478,7 @@ func newTestClusterWithSnapshotThreshold(t *testing.T, ids []core.MemberID, snap
 	return c
 }
 
-func newPersistentTestCluster(t *testing.T, ids []core.MemberID, dir string, snapshotThreshold uint64) *testCluster {
+func newPersistentTestCluster(t testing.TB, ids []core.MemberID, dir string, snapshotThreshold uint64) *testCluster {
 	t.Helper()
 	c := &testCluster{
 		t:            t,

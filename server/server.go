@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/HasonoCell/Etcd-Lite/api/etcdlitepb"
+	"github.com/HasonoCell/Etcd-Lite/metrics"
 	"github.com/HasonoCell/Etcd-Lite/mvcc"
 	"github.com/HasonoCell/Etcd-Lite/raft/core"
 	"github.com/HasonoCell/Etcd-Lite/watch"
@@ -43,6 +44,7 @@ type Config struct {
 	HeartbeatInterval time.Duration
 	RequestTimeout    time.Duration
 	SnapshotThreshold uint64
+	Metrics           *metrics.Recorder
 }
 
 type Server struct {
@@ -57,6 +59,7 @@ type Server struct {
 	applyCh           chan core.ApplyMsg
 	requestTimeout    time.Duration
 	snapshotThreshold uint64
+	metrics           *metrics.Recorder
 	stopCh            chan struct{}
 
 	mu sync.Mutex
@@ -112,6 +115,9 @@ func New(cfg Config) (*Server, error) {
 	if cfg.SnapshotThreshold == 0 {
 		cfg.SnapshotThreshold = defaultSnapshotThreshold
 	}
+	if cfg.Metrics == nil {
+		cfg.Metrics = metrics.NewRecorder()
+	}
 	if cfg.RaftStorage != nil {
 		ps, err := cfg.RaftStorage.Load()
 		if err != nil {
@@ -144,6 +150,7 @@ func New(cfg Config) (*Server, error) {
 		applyCh:           cfg.ApplyCh,
 		requestTimeout:    cfg.RequestTimeout,
 		snapshotThreshold: cfg.SnapshotThreshold,
+		metrics:           cfg.Metrics,
 		stopCh:            make(chan struct{}),
 		waiters:           make(map[uint64]chan applyResult),
 		indexCache:        make(map[uint64]applyResult),
@@ -178,8 +185,25 @@ func (s *Server) Raft() *core.Raft {
 	return s.raft
 }
 
+// MetricsSnapshot 合并 metrics counter、Raft status 和 MVCC revision，供 /metrics 与 /status 使用。
+func (s *Server) MetricsSnapshot() metrics.Snapshot {
+	snapshot := s.metrics.Snapshot()
+	status := s.raft.Status()
+	snapshot.MemberID = uint64(status.ID)
+	snapshot.LeaderID = uint64(status.LeaderID)
+	snapshot.State = status.State.String()
+	snapshot.Term = status.Term
+	snapshot.Revision = s.store.CurrentRevision()
+	snapshot.CommitIndex = status.CommitIndex
+	snapshot.AppliedIndex = status.AppliedIndex
+	snapshot.LastLogIndex = status.LastLogIndex
+	snapshot.SnapshotIndex = status.SnapshotIndex
+	return snapshot
+}
+
 // range 读请求
 func (s *Server) Range(ctx context.Context, req *etcdlitepb.RangeRequest) (*etcdlitepb.RangeResponse, error) {
+	s.recordRequest("range")
 	ctx, cancel := s.withRequestTimeout(ctx)
 	defer cancel()
 
@@ -218,6 +242,7 @@ func (s *Server) Range(ctx context.Context, req *etcdlitepb.RangeRequest) (*etcd
 
 // put 写请求
 func (s *Server) Put(ctx context.Context, req *etcdlitepb.PutRequest) (*etcdlitepb.PutResponse, error) {
+	s.recordRequest("put")
 	ctx, cancel := s.withRequestTimeout(ctx)
 	defer cancel()
 
@@ -252,6 +277,7 @@ func (s *Server) Put(ctx context.Context, req *etcdlitepb.PutRequest) (*etcdlite
 
 // delete 写请求
 func (s *Server) DeleteRange(ctx context.Context, req *etcdlitepb.DeleteRangeRequest) (*etcdlitepb.DeleteRangeResponse, error) {
+	s.recordRequest("delete_range")
 	ctx, cancel := s.withRequestTimeout(ctx)
 	defer cancel()
 
@@ -281,6 +307,7 @@ func (s *Server) DeleteRange(ctx context.Context, req *etcdlitepb.DeleteRangeReq
 
 // txn 写请求，compare 和 success/failure branch 都通过 Raft log 达成全序一致。
 func (s *Server) Txn(ctx context.Context, req *etcdlitepb.TxnRequest) (*etcdlitepb.TxnResponse, error) {
+	s.recordRequest("txn")
 	ctx, cancel := s.withRequestTimeout(ctx)
 	defer cancel()
 
@@ -302,6 +329,7 @@ func (s *Server) Txn(ctx context.Context, req *etcdlitepb.TxnRequest) (*etcdlite
 
 // Compact 写入 Raft log，统一推进所有节点的 MVCC compact revision。
 func (s *Server) Compact(ctx context.Context, req *etcdlitepb.CompactionRequest) (*etcdlitepb.CompactionResponse, error) {
+	s.recordRequest("compact")
 	ctx, cancel := s.withRequestTimeout(ctx)
 	defer cancel()
 
@@ -327,6 +355,7 @@ func (s *Server) Compact(ctx context.Context, req *etcdlitepb.CompactionRequest)
 // watch 请求，不会走 raft log，分为两个阶段：history replay 和 live watch
 // 前者从 start revision 开始重放已存在的 event，后者在所有历史 event 重放后监听未来 event
 func (s *Server) Watch(req *etcdlitepb.WatchRequest, stream grpc.ServerStreamingServer[etcdlitepb.WatchResponse]) error {
+	s.recordRequest("watch")
 	if err := mvcc.ValidateKeyRange(req.GetKey(), req.GetEnd()); err != nil {
 		return stream.Send(&etcdlitepb.WatchResponse{
 			Header: s.errorHeader(err.Error(), 0),
@@ -393,6 +422,7 @@ func (s *Server) Watch(req *etcdlitepb.WatchRequest, stream grpc.ServerStreaming
 
 // 创建 lease 请求
 func (s *Server) LeaseGrant(ctx context.Context, req *etcdlitepb.LeaseGrantRequest) (*etcdlitepb.LeaseGrantResponse, error) {
+	s.recordRequest("lease_grant")
 	ctx, cancel := s.withRequestTimeout(ctx)
 	defer cancel()
 
@@ -431,6 +461,7 @@ func (s *Server) LeaseKeepAlive(stream grpc.BidiStreamingServer[etcdlitepb.Lease
 			return err
 		}
 
+		s.recordRequest("lease_keep_alive")
 		ctx, cancel := s.withRequestTimeout(stream.Context())
 		result, submitErr := s.submit(ctx, mvcc.Command{
 			ID:   mvcc.RequestID{ClientID: req.GetClientId(), RequestID: req.GetRequestId()},
@@ -463,6 +494,7 @@ func (s *Server) LeaseKeepAlive(stream grpc.BidiStreamingServer[etcdlitepb.Lease
 
 // 删除 lease 及其 keys 请求
 func (s *Server) LeaseRevoke(ctx context.Context, req *etcdlitepb.LeaseRevokeRequest) (*etcdlitepb.LeaseRevokeResponse, error) {
+	s.recordRequest("lease_revoke")
 	ctx, cancel := s.withRequestTimeout(ctx)
 	defer cancel()
 
@@ -487,6 +519,7 @@ func (s *Server) LeaseRevoke(ctx context.Context, req *etcdlitepb.LeaseRevokeReq
 }
 
 func (s *Server) Status(context.Context, *etcdlitepb.StatusRequest) (*etcdlitepb.StatusResponse, error) {
+	s.recordRequest("status")
 	status := s.raft.Status()
 	return &etcdlitepb.StatusResponse{
 		Header:        s.header(s.store.CurrentRevision(), 0, ""),
@@ -581,6 +614,7 @@ func (s *Server) applyLoop() {
 				result.err = err
 			} else {
 				result.request = requestKey{ClientID: command.ID.ClientID, RequestID: command.ID.RequestID}
+				s.recordApply(string(command.Kind))
 				// apply 给 mvcc
 				applyResult, applyErr := s.store.Apply(command)
 				result.result = applyResult
@@ -593,6 +627,7 @@ func (s *Server) applyLoop() {
 			s.finishApply(result)
 			// 然后就可以对 watcher 发布消息了
 			if result.err == nil && len(result.result.Events) > 0 {
+				s.recordWatchEvents(uint64(len(result.result.Events)))
 				s.watchHub.Publish(result.result.Events)
 			}
 			if result.err == nil {
@@ -645,6 +680,7 @@ func (s *Server) snapshotAt(index uint64) {
 	}
 	// 然后走 raft
 	s.raft.Snapshot(index, data)
+	s.recordSnapshot()
 }
 
 // 对 applyResult 的一系列操作
@@ -779,6 +815,7 @@ func (s *Server) leaseExpirationLoop() {
 						LeaseID: record.LeaseID,
 					},
 				})
+				s.recordLeaseExpiration()
 				cancel()
 			}
 		}
@@ -805,7 +842,44 @@ func (s *Server) header(revision int64, raftIndex uint64, err string) *etcdlitep
 }
 
 func (s *Server) errorHeader(err string, raftIndex uint64) *etcdlitepb.ResponseHeader {
+	s.recordError(err)
 	return s.header(s.store.CurrentRevision(), raftIndex, err)
+}
+
+func (s *Server) recordRequest(method string) {
+	if s.metrics != nil {
+		s.metrics.IncRequest(method)
+	}
+}
+
+func (s *Server) recordApply(kind string) {
+	if s.metrics != nil {
+		s.metrics.IncApply(kind)
+	}
+}
+
+func (s *Server) recordError(name string) {
+	if s.metrics != nil {
+		s.metrics.IncError(name)
+	}
+}
+
+func (s *Server) recordWatchEvents(n uint64) {
+	if s.metrics != nil {
+		s.metrics.AddWatchEvents(n)
+	}
+}
+
+func (s *Server) recordSnapshot() {
+	if s.metrics != nil {
+		s.metrics.IncSnapshot()
+	}
+}
+
+func (s *Server) recordLeaseExpiration() {
+	if s.metrics != nil {
+		s.metrics.IncLeaseExpiration()
+	}
 }
 
 func waitResult(ctx context.Context, ch chan applyResult) (applyResult, error) {
