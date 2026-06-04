@@ -1,6 +1,6 @@
 # etcd-lite
 
-`etcd-lite` 是一个面向学习和简历展示的 coordination store。它复用了 MIT 6.824 Raft lab 的主体实现风格，并在此基础上补齐更接近工业系统的模块：真实 gRPC API、MVCC state machine、Txn、ReadIndex、Watch、Lease、Snapshot/Compaction、WAL recovery 和 Prometheus metrics。
+`etcd-lite` 是一个基于 Raft 的分布式键值数据库，支持 gRPC API、MVCC state machine、Txn、ReadIndex、Watch、Lease、Snapshot/Compaction、WAL recovery 和 Prometheus metrics。
 
 ## Quick Start
 
@@ -38,5 +38,3 @@ go test ./...
 ```bash
 go test -run '^$' -bench BenchmarkPutAndRange ./server
 ```
-
-更多 demo 和简历描述见 [docs/demo.md](docs/demo.md)。
