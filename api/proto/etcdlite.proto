@@ -11,6 +11,16 @@ service KV {
   rpc Txn(TxnRequest) returns (TxnResponse);
 }
 
+service Watch {
+  rpc Watch(WatchRequest) returns (stream WatchResponse);
+}
+
+service Lease {
+  rpc LeaseGrant(LeaseGrantRequest) returns (LeaseGrantResponse);
+  rpc LeaseKeepAlive(stream LeaseKeepAliveRequest) returns (stream LeaseKeepAliveResponse);
+  rpc LeaseRevoke(LeaseRevokeRequest) returns (LeaseRevokeResponse);
+}
+
 service Maintenance {
   rpc Status(StatusRequest) returns (StatusResponse);
 }
@@ -32,6 +42,24 @@ message KeyValue {
   int64 version = 5;
   int64 lease_id = 6;
   bool tombstone = 7;
+}
+
+message Revision {
+  int64 main = 1;
+  int64 sub = 2;
+}
+
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  EVENT_TYPE_PUT = 1;
+  EVENT_TYPE_DELETE = 2;
+}
+
+message Event {
+  EventType type = 1;
+  Revision revision = 2;
+  KeyValue kv = 3;
+  KeyValue prev_kv = 4;
 }
 
 message RangeRequest {
@@ -132,6 +160,59 @@ message TxnResponse {
   ResponseHeader header = 1;
   bool succeeded = 2;
   repeated ResponseOp responses = 3;
+}
+
+message WatchRequest {
+  bytes key = 1;
+  bytes end = 2;
+  int64 start_revision = 3;
+  bool prev_kv = 4;
+}
+
+message WatchResponse {
+  ResponseHeader header = 1;
+  int64 watch_id = 2;
+  bool created = 3;
+  bool canceled = 4;
+  string error = 5;
+  int64 compact_revision = 6;
+  repeated Event events = 7;
+}
+
+message LeaseGrantRequest {
+  int64 lease_id = 1;
+  int64 ttl = 2;
+  uint64 client_id = 3;
+  uint64 request_id = 4;
+}
+
+message LeaseGrantResponse {
+  ResponseHeader header = 1;
+  int64 lease_id = 2;
+  int64 ttl = 3;
+}
+
+message LeaseKeepAliveRequest {
+  int64 lease_id = 1;
+  uint64 client_id = 2;
+  uint64 request_id = 3;
+}
+
+message LeaseKeepAliveResponse {
+  ResponseHeader header = 1;
+  int64 lease_id = 2;
+  int64 ttl = 3;
+}
+
+message LeaseRevokeRequest {
+  int64 lease_id = 1;
+  uint64 client_id = 2;
+  uint64 request_id = 3;
+}
+
+message LeaseRevokeResponse {
+  ResponseHeader header = 1;
+  int64 deleted = 2;
 }
 
 message StatusRequest {}

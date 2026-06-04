@@ -24,6 +24,12 @@ type TxnExecution struct {
 // ExecuteTxn 在 current view 的副本上执行 compare/success/failure。
 // 所有写操作共享一个 main revision；同一个 Txn 内的多个 event 用 sub revision 保持顺序。
 func ExecuteTxn(current map[string]KeyValue, currentRevision int64, txn TxnCommand) (TxnExecution, error) {
+	return ExecuteTxnWithLeaseValidator(current, currentRevision, txn, nil)
+}
+
+// ExecuteTxnWithLeaseValidator 在 ExecuteTxn 基础上校验被执行 branch 里的 lease attach。
+// leaseExists 为 nil 时跳过 lease 存在性校验，主要用于不关心 lease 的测试或纯内存计算。
+func ExecuteTxnWithLeaseValidator(current map[string]KeyValue, currentRevision int64, txn TxnCommand, leaseExists func(int64) bool) (TxnExecution, error) {
 	if err := ValidateTxnCommand(txn); err != nil {
 		return TxnExecution{}, err
 	}
@@ -42,7 +48,7 @@ func ExecuteTxn(current map[string]KeyValue, currentRevision int64, txn TxnComma
 
 	// 执行 successs/failure 分支时修改的是 current view 副本。
 	currentClone := cloneView(current)
-	responses, events, err := executeTxnOps(currentClone, currentRevision, branch)
+	responses, events, err := executeTxnOps(currentClone, currentRevision, branch, leaseExists)
 	if err != nil {
 		return TxnExecution{}, err
 	}
@@ -163,7 +169,7 @@ func evalCompare(compare Compare, kv KeyValue) (bool, error) {
 }
 
 // 执行 txn 分支，注意操作的都是 current 副本
-func executeTxnOps(current map[string]KeyValue, currentRevision int64, ops []Op) ([]OpResponse, []Event, error) {
+func executeTxnOps(current map[string]KeyValue, currentRevision int64, ops []Op, leaseExists func(int64) bool) ([]OpResponse, []Event, error) {
 	nextRevision := currentRevision + 1
 	responses := make([]OpResponse, 0, len(ops))
 	events := make([]Event, 0)
@@ -175,6 +181,9 @@ func executeTxnOps(current map[string]KeyValue, currentRevision int64, ops []Op)
 			resp := txnRange(current, *op.Range, currentRevision)
 			responses = append(responses, OpResponse{Kind: OpRange, Range: &resp})
 		case OpPut:
+			if err := validateTxnLease(op.Put.LeaseID, leaseExists); err != nil {
+				return nil, nil, err
+			}
 			resp, event := txnPut(current, *op.Put, nextRevision, int64(len(events)))
 			events = append(events, CloneEvent(event))
 			responses = append(responses, OpResponse{Kind: OpPut, Put: &resp})
@@ -187,6 +196,19 @@ func executeTxnOps(current map[string]KeyValue, currentRevision int64, ops []Op)
 		}
 	}
 	return responses, events, nil
+}
+
+func validateTxnLease(leaseID int64, leaseExists func(int64) bool) error {
+	if leaseID == 0 {
+		return nil
+	}
+	if leaseID < 0 {
+		return ErrInvalidLease
+	}
+	if leaseExists != nil && !leaseExists(leaseID) {
+		return ErrLeaseNotFound
+	}
+	return nil
 }
 
 // 虽然单个 range command 走 readindex，但是 txn 中的 range op 一会走 raft log。

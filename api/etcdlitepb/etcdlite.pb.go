@@ -21,6 +21,55 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type EventType int32
+
+const (
+	EventType_EVENT_TYPE_UNSPECIFIED EventType = 0
+	EventType_EVENT_TYPE_PUT         EventType = 1
+	EventType_EVENT_TYPE_DELETE      EventType = 2
+)
+
+// Enum value maps for EventType.
+var (
+	EventType_name = map[int32]string{
+		0: "EVENT_TYPE_UNSPECIFIED",
+		1: "EVENT_TYPE_PUT",
+		2: "EVENT_TYPE_DELETE",
+	}
+	EventType_value = map[string]int32{
+		"EVENT_TYPE_UNSPECIFIED": 0,
+		"EVENT_TYPE_PUT":         1,
+		"EVENT_TYPE_DELETE":      2,
+	}
+)
+
+func (x EventType) Enum() *EventType {
+	p := new(EventType)
+	*p = x
+	return p
+}
+
+func (x EventType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (EventType) Descriptor() protoreflect.EnumDescriptor {
+	return file_etcdlite_proto_enumTypes[0].Descriptor()
+}
+
+func (EventType) Type() protoreflect.EnumType {
+	return &file_etcdlite_proto_enumTypes[0]
+}
+
+func (x EventType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use EventType.Descriptor instead.
+func (EventType) EnumDescriptor() ([]byte, []int) {
+	return file_etcdlite_proto_rawDescGZIP(), []int{0}
+}
+
 type CompareTarget int32
 
 const (
@@ -63,11 +112,11 @@ func (x CompareTarget) String() string {
 }
 
 func (CompareTarget) Descriptor() protoreflect.EnumDescriptor {
-	return file_etcdlite_proto_enumTypes[0].Descriptor()
+	return file_etcdlite_proto_enumTypes[1].Descriptor()
 }
 
 func (CompareTarget) Type() protoreflect.EnumType {
-	return &file_etcdlite_proto_enumTypes[0]
+	return &file_etcdlite_proto_enumTypes[1]
 }
 
 func (x CompareTarget) Number() protoreflect.EnumNumber {
@@ -76,7 +125,7 @@ func (x CompareTarget) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use CompareTarget.Descriptor instead.
 func (CompareTarget) EnumDescriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{0}
+	return file_etcdlite_proto_rawDescGZIP(), []int{1}
 }
 
 type CompareResult int32
@@ -118,11 +167,11 @@ func (x CompareResult) String() string {
 }
 
 func (CompareResult) Descriptor() protoreflect.EnumDescriptor {
-	return file_etcdlite_proto_enumTypes[1].Descriptor()
+	return file_etcdlite_proto_enumTypes[2].Descriptor()
 }
 
 func (CompareResult) Type() protoreflect.EnumType {
-	return &file_etcdlite_proto_enumTypes[1]
+	return &file_etcdlite_proto_enumTypes[2]
 }
 
 func (x CompareResult) Number() protoreflect.EnumNumber {
@@ -131,7 +180,7 @@ func (x CompareResult) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use CompareResult.Descriptor instead.
 func (CompareResult) EnumDescriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{1}
+	return file_etcdlite_proto_rawDescGZIP(), []int{2}
 }
 
 type ResponseHeader struct {
@@ -310,6 +359,126 @@ func (x *KeyValue) GetTombstone() bool {
 	return false
 }
 
+type Revision struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Main          int64                  `protobuf:"varint,1,opt,name=main,proto3" json:"main,omitempty"`
+	Sub           int64                  `protobuf:"varint,2,opt,name=sub,proto3" json:"sub,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Revision) Reset() {
+	*x = Revision{}
+	mi := &file_etcdlite_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Revision) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Revision) ProtoMessage() {}
+
+func (x *Revision) ProtoReflect() protoreflect.Message {
+	mi := &file_etcdlite_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Revision.ProtoReflect.Descriptor instead.
+func (*Revision) Descriptor() ([]byte, []int) {
+	return file_etcdlite_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *Revision) GetMain() int64 {
+	if x != nil {
+		return x.Main
+	}
+	return 0
+}
+
+func (x *Revision) GetSub() int64 {
+	if x != nil {
+		return x.Sub
+	}
+	return 0
+}
+
+type Event struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Type          EventType              `protobuf:"varint,1,opt,name=type,proto3,enum=etcdlite.v1.EventType" json:"type,omitempty"`
+	Revision      *Revision              `protobuf:"bytes,2,opt,name=revision,proto3" json:"revision,omitempty"`
+	Kv            *KeyValue              `protobuf:"bytes,3,opt,name=kv,proto3" json:"kv,omitempty"`
+	PrevKv        *KeyValue              `protobuf:"bytes,4,opt,name=prev_kv,json=prevKv,proto3" json:"prev_kv,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Event) Reset() {
+	*x = Event{}
+	mi := &file_etcdlite_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Event) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Event) ProtoMessage() {}
+
+func (x *Event) ProtoReflect() protoreflect.Message {
+	mi := &file_etcdlite_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Event.ProtoReflect.Descriptor instead.
+func (*Event) Descriptor() ([]byte, []int) {
+	return file_etcdlite_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *Event) GetType() EventType {
+	if x != nil {
+		return x.Type
+	}
+	return EventType_EVENT_TYPE_UNSPECIFIED
+}
+
+func (x *Event) GetRevision() *Revision {
+	if x != nil {
+		return x.Revision
+	}
+	return nil
+}
+
+func (x *Event) GetKv() *KeyValue {
+	if x != nil {
+		return x.Kv
+	}
+	return nil
+}
+
+func (x *Event) GetPrevKv() *KeyValue {
+	if x != nil {
+		return x.PrevKv
+	}
+	return nil
+}
+
 type RangeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Key           []byte                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
@@ -323,7 +492,7 @@ type RangeRequest struct {
 
 func (x *RangeRequest) Reset() {
 	*x = RangeRequest{}
-	mi := &file_etcdlite_proto_msgTypes[2]
+	mi := &file_etcdlite_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -335,7 +504,7 @@ func (x *RangeRequest) String() string {
 func (*RangeRequest) ProtoMessage() {}
 
 func (x *RangeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[2]
+	mi := &file_etcdlite_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -348,7 +517,7 @@ func (x *RangeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RangeRequest.ProtoReflect.Descriptor instead.
 func (*RangeRequest) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{2}
+	return file_etcdlite_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *RangeRequest) GetKey() []byte {
@@ -397,7 +566,7 @@ type RangeResponse struct {
 
 func (x *RangeResponse) Reset() {
 	*x = RangeResponse{}
-	mi := &file_etcdlite_proto_msgTypes[3]
+	mi := &file_etcdlite_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -409,7 +578,7 @@ func (x *RangeResponse) String() string {
 func (*RangeResponse) ProtoMessage() {}
 
 func (x *RangeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[3]
+	mi := &file_etcdlite_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -422,7 +591,7 @@ func (x *RangeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RangeResponse.ProtoReflect.Descriptor instead.
 func (*RangeResponse) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{3}
+	return file_etcdlite_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RangeResponse) GetHeader() *ResponseHeader {
@@ -460,7 +629,7 @@ type PutRequest struct {
 
 func (x *PutRequest) Reset() {
 	*x = PutRequest{}
-	mi := &file_etcdlite_proto_msgTypes[4]
+	mi := &file_etcdlite_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -472,7 +641,7 @@ func (x *PutRequest) String() string {
 func (*PutRequest) ProtoMessage() {}
 
 func (x *PutRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[4]
+	mi := &file_etcdlite_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -485,7 +654,7 @@ func (x *PutRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PutRequest.ProtoReflect.Descriptor instead.
 func (*PutRequest) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{4}
+	return file_etcdlite_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *PutRequest) GetKey() []byte {
@@ -540,7 +709,7 @@ type PutResponse struct {
 
 func (x *PutResponse) Reset() {
 	*x = PutResponse{}
-	mi := &file_etcdlite_proto_msgTypes[5]
+	mi := &file_etcdlite_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -552,7 +721,7 @@ func (x *PutResponse) String() string {
 func (*PutResponse) ProtoMessage() {}
 
 func (x *PutResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[5]
+	mi := &file_etcdlite_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -565,7 +734,7 @@ func (x *PutResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PutResponse.ProtoReflect.Descriptor instead.
 func (*PutResponse) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{5}
+	return file_etcdlite_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *PutResponse) GetHeader() *ResponseHeader {
@@ -595,7 +764,7 @@ type DeleteRangeRequest struct {
 
 func (x *DeleteRangeRequest) Reset() {
 	*x = DeleteRangeRequest{}
-	mi := &file_etcdlite_proto_msgTypes[6]
+	mi := &file_etcdlite_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -607,7 +776,7 @@ func (x *DeleteRangeRequest) String() string {
 func (*DeleteRangeRequest) ProtoMessage() {}
 
 func (x *DeleteRangeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[6]
+	mi := &file_etcdlite_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -620,7 +789,7 @@ func (x *DeleteRangeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteRangeRequest.ProtoReflect.Descriptor instead.
 func (*DeleteRangeRequest) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{6}
+	return file_etcdlite_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *DeleteRangeRequest) GetKey() []byte {
@@ -669,7 +838,7 @@ type DeleteRangeResponse struct {
 
 func (x *DeleteRangeResponse) Reset() {
 	*x = DeleteRangeResponse{}
-	mi := &file_etcdlite_proto_msgTypes[7]
+	mi := &file_etcdlite_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -681,7 +850,7 @@ func (x *DeleteRangeResponse) String() string {
 func (*DeleteRangeResponse) ProtoMessage() {}
 
 func (x *DeleteRangeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[7]
+	mi := &file_etcdlite_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -694,7 +863,7 @@ func (x *DeleteRangeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteRangeResponse.ProtoReflect.Descriptor instead.
 func (*DeleteRangeResponse) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{7}
+	return file_etcdlite_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *DeleteRangeResponse) GetHeader() *ResponseHeader {
@@ -734,7 +903,7 @@ type Compare struct {
 
 func (x *Compare) Reset() {
 	*x = Compare{}
-	mi := &file_etcdlite_proto_msgTypes[8]
+	mi := &file_etcdlite_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -746,7 +915,7 @@ func (x *Compare) String() string {
 func (*Compare) ProtoMessage() {}
 
 func (x *Compare) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[8]
+	mi := &file_etcdlite_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -759,7 +928,7 @@ func (x *Compare) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Compare.ProtoReflect.Descriptor instead.
 func (*Compare) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{8}
+	return file_etcdlite_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Compare) GetKey() []byte {
@@ -832,7 +1001,7 @@ type RequestOp struct {
 
 func (x *RequestOp) Reset() {
 	*x = RequestOp{}
-	mi := &file_etcdlite_proto_msgTypes[9]
+	mi := &file_etcdlite_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -844,7 +1013,7 @@ func (x *RequestOp) String() string {
 func (*RequestOp) ProtoMessage() {}
 
 func (x *RequestOp) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[9]
+	mi := &file_etcdlite_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -857,7 +1026,7 @@ func (x *RequestOp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequestOp.ProtoReflect.Descriptor instead.
 func (*RequestOp) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{9}
+	return file_etcdlite_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *RequestOp) GetRequest() isRequestOp_Request {
@@ -930,7 +1099,7 @@ type ResponseOp struct {
 
 func (x *ResponseOp) Reset() {
 	*x = ResponseOp{}
-	mi := &file_etcdlite_proto_msgTypes[10]
+	mi := &file_etcdlite_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -942,7 +1111,7 @@ func (x *ResponseOp) String() string {
 func (*ResponseOp) ProtoMessage() {}
 
 func (x *ResponseOp) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[10]
+	mi := &file_etcdlite_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -955,7 +1124,7 @@ func (x *ResponseOp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResponseOp.ProtoReflect.Descriptor instead.
 func (*ResponseOp) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{10}
+	return file_etcdlite_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ResponseOp) GetResponse() isResponseOp_Response {
@@ -1027,7 +1196,7 @@ type TxnRequest struct {
 
 func (x *TxnRequest) Reset() {
 	*x = TxnRequest{}
-	mi := &file_etcdlite_proto_msgTypes[11]
+	mi := &file_etcdlite_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1039,7 +1208,7 @@ func (x *TxnRequest) String() string {
 func (*TxnRequest) ProtoMessage() {}
 
 func (x *TxnRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[11]
+	mi := &file_etcdlite_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1052,7 +1221,7 @@ func (x *TxnRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TxnRequest.ProtoReflect.Descriptor instead.
 func (*TxnRequest) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{11}
+	return file_etcdlite_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *TxnRequest) GetCompare() []*Compare {
@@ -1101,7 +1270,7 @@ type TxnResponse struct {
 
 func (x *TxnResponse) Reset() {
 	*x = TxnResponse{}
-	mi := &file_etcdlite_proto_msgTypes[12]
+	mi := &file_etcdlite_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1113,7 +1282,7 @@ func (x *TxnResponse) String() string {
 func (*TxnResponse) ProtoMessage() {}
 
 func (x *TxnResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[12]
+	mi := &file_etcdlite_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1126,7 +1295,7 @@ func (x *TxnResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TxnResponse.ProtoReflect.Descriptor instead.
 func (*TxnResponse) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{12}
+	return file_etcdlite_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *TxnResponse) GetHeader() *ResponseHeader {
@@ -1150,6 +1319,526 @@ func (x *TxnResponse) GetResponses() []*ResponseOp {
 	return nil
 }
 
+type WatchRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           []byte                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	End           []byte                 `protobuf:"bytes,2,opt,name=end,proto3" json:"end,omitempty"`
+	StartRevision int64                  `protobuf:"varint,3,opt,name=start_revision,json=startRevision,proto3" json:"start_revision,omitempty"`
+	PrevKv        bool                   `protobuf:"varint,4,opt,name=prev_kv,json=prevKv,proto3" json:"prev_kv,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WatchRequest) Reset() {
+	*x = WatchRequest{}
+	mi := &file_etcdlite_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WatchRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WatchRequest) ProtoMessage() {}
+
+func (x *WatchRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_etcdlite_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WatchRequest.ProtoReflect.Descriptor instead.
+func (*WatchRequest) Descriptor() ([]byte, []int) {
+	return file_etcdlite_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *WatchRequest) GetKey() []byte {
+	if x != nil {
+		return x.Key
+	}
+	return nil
+}
+
+func (x *WatchRequest) GetEnd() []byte {
+	if x != nil {
+		return x.End
+	}
+	return nil
+}
+
+func (x *WatchRequest) GetStartRevision() int64 {
+	if x != nil {
+		return x.StartRevision
+	}
+	return 0
+}
+
+func (x *WatchRequest) GetPrevKv() bool {
+	if x != nil {
+		return x.PrevKv
+	}
+	return false
+}
+
+type WatchResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Header          *ResponseHeader        `protobuf:"bytes,1,opt,name=header,proto3" json:"header,omitempty"`
+	WatchId         int64                  `protobuf:"varint,2,opt,name=watch_id,json=watchId,proto3" json:"watch_id,omitempty"`
+	Created         bool                   `protobuf:"varint,3,opt,name=created,proto3" json:"created,omitempty"`
+	Canceled        bool                   `protobuf:"varint,4,opt,name=canceled,proto3" json:"canceled,omitempty"`
+	Error           string                 `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
+	CompactRevision int64                  `protobuf:"varint,6,opt,name=compact_revision,json=compactRevision,proto3" json:"compact_revision,omitempty"`
+	Events          []*Event               `protobuf:"bytes,7,rep,name=events,proto3" json:"events,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *WatchResponse) Reset() {
+	*x = WatchResponse{}
+	mi := &file_etcdlite_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WatchResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WatchResponse) ProtoMessage() {}
+
+func (x *WatchResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_etcdlite_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WatchResponse.ProtoReflect.Descriptor instead.
+func (*WatchResponse) Descriptor() ([]byte, []int) {
+	return file_etcdlite_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *WatchResponse) GetHeader() *ResponseHeader {
+	if x != nil {
+		return x.Header
+	}
+	return nil
+}
+
+func (x *WatchResponse) GetWatchId() int64 {
+	if x != nil {
+		return x.WatchId
+	}
+	return 0
+}
+
+func (x *WatchResponse) GetCreated() bool {
+	if x != nil {
+		return x.Created
+	}
+	return false
+}
+
+func (x *WatchResponse) GetCanceled() bool {
+	if x != nil {
+		return x.Canceled
+	}
+	return false
+}
+
+func (x *WatchResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *WatchResponse) GetCompactRevision() int64 {
+	if x != nil {
+		return x.CompactRevision
+	}
+	return 0
+}
+
+func (x *WatchResponse) GetEvents() []*Event {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
+type LeaseGrantRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	LeaseId       int64                  `protobuf:"varint,1,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
+	Ttl           int64                  `protobuf:"varint,2,opt,name=ttl,proto3" json:"ttl,omitempty"`
+	ClientId      uint64                 `protobuf:"varint,3,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	RequestId     uint64                 `protobuf:"varint,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LeaseGrantRequest) Reset() {
+	*x = LeaseGrantRequest{}
+	mi := &file_etcdlite_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LeaseGrantRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LeaseGrantRequest) ProtoMessage() {}
+
+func (x *LeaseGrantRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_etcdlite_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LeaseGrantRequest.ProtoReflect.Descriptor instead.
+func (*LeaseGrantRequest) Descriptor() ([]byte, []int) {
+	return file_etcdlite_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *LeaseGrantRequest) GetLeaseId() int64 {
+	if x != nil {
+		return x.LeaseId
+	}
+	return 0
+}
+
+func (x *LeaseGrantRequest) GetTtl() int64 {
+	if x != nil {
+		return x.Ttl
+	}
+	return 0
+}
+
+func (x *LeaseGrantRequest) GetClientId() uint64 {
+	if x != nil {
+		return x.ClientId
+	}
+	return 0
+}
+
+func (x *LeaseGrantRequest) GetRequestId() uint64 {
+	if x != nil {
+		return x.RequestId
+	}
+	return 0
+}
+
+type LeaseGrantResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Header        *ResponseHeader        `protobuf:"bytes,1,opt,name=header,proto3" json:"header,omitempty"`
+	LeaseId       int64                  `protobuf:"varint,2,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
+	Ttl           int64                  `protobuf:"varint,3,opt,name=ttl,proto3" json:"ttl,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LeaseGrantResponse) Reset() {
+	*x = LeaseGrantResponse{}
+	mi := &file_etcdlite_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LeaseGrantResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LeaseGrantResponse) ProtoMessage() {}
+
+func (x *LeaseGrantResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_etcdlite_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LeaseGrantResponse.ProtoReflect.Descriptor instead.
+func (*LeaseGrantResponse) Descriptor() ([]byte, []int) {
+	return file_etcdlite_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *LeaseGrantResponse) GetHeader() *ResponseHeader {
+	if x != nil {
+		return x.Header
+	}
+	return nil
+}
+
+func (x *LeaseGrantResponse) GetLeaseId() int64 {
+	if x != nil {
+		return x.LeaseId
+	}
+	return 0
+}
+
+func (x *LeaseGrantResponse) GetTtl() int64 {
+	if x != nil {
+		return x.Ttl
+	}
+	return 0
+}
+
+type LeaseKeepAliveRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	LeaseId       int64                  `protobuf:"varint,1,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
+	ClientId      uint64                 `protobuf:"varint,2,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	RequestId     uint64                 `protobuf:"varint,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LeaseKeepAliveRequest) Reset() {
+	*x = LeaseKeepAliveRequest{}
+	mi := &file_etcdlite_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LeaseKeepAliveRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LeaseKeepAliveRequest) ProtoMessage() {}
+
+func (x *LeaseKeepAliveRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_etcdlite_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LeaseKeepAliveRequest.ProtoReflect.Descriptor instead.
+func (*LeaseKeepAliveRequest) Descriptor() ([]byte, []int) {
+	return file_etcdlite_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *LeaseKeepAliveRequest) GetLeaseId() int64 {
+	if x != nil {
+		return x.LeaseId
+	}
+	return 0
+}
+
+func (x *LeaseKeepAliveRequest) GetClientId() uint64 {
+	if x != nil {
+		return x.ClientId
+	}
+	return 0
+}
+
+func (x *LeaseKeepAliveRequest) GetRequestId() uint64 {
+	if x != nil {
+		return x.RequestId
+	}
+	return 0
+}
+
+type LeaseKeepAliveResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Header        *ResponseHeader        `protobuf:"bytes,1,opt,name=header,proto3" json:"header,omitempty"`
+	LeaseId       int64                  `protobuf:"varint,2,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
+	Ttl           int64                  `protobuf:"varint,3,opt,name=ttl,proto3" json:"ttl,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LeaseKeepAliveResponse) Reset() {
+	*x = LeaseKeepAliveResponse{}
+	mi := &file_etcdlite_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LeaseKeepAliveResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LeaseKeepAliveResponse) ProtoMessage() {}
+
+func (x *LeaseKeepAliveResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_etcdlite_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LeaseKeepAliveResponse.ProtoReflect.Descriptor instead.
+func (*LeaseKeepAliveResponse) Descriptor() ([]byte, []int) {
+	return file_etcdlite_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *LeaseKeepAliveResponse) GetHeader() *ResponseHeader {
+	if x != nil {
+		return x.Header
+	}
+	return nil
+}
+
+func (x *LeaseKeepAliveResponse) GetLeaseId() int64 {
+	if x != nil {
+		return x.LeaseId
+	}
+	return 0
+}
+
+func (x *LeaseKeepAliveResponse) GetTtl() int64 {
+	if x != nil {
+		return x.Ttl
+	}
+	return 0
+}
+
+type LeaseRevokeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	LeaseId       int64                  `protobuf:"varint,1,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
+	ClientId      uint64                 `protobuf:"varint,2,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	RequestId     uint64                 `protobuf:"varint,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LeaseRevokeRequest) Reset() {
+	*x = LeaseRevokeRequest{}
+	mi := &file_etcdlite_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LeaseRevokeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LeaseRevokeRequest) ProtoMessage() {}
+
+func (x *LeaseRevokeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_etcdlite_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LeaseRevokeRequest.ProtoReflect.Descriptor instead.
+func (*LeaseRevokeRequest) Descriptor() ([]byte, []int) {
+	return file_etcdlite_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *LeaseRevokeRequest) GetLeaseId() int64 {
+	if x != nil {
+		return x.LeaseId
+	}
+	return 0
+}
+
+func (x *LeaseRevokeRequest) GetClientId() uint64 {
+	if x != nil {
+		return x.ClientId
+	}
+	return 0
+}
+
+func (x *LeaseRevokeRequest) GetRequestId() uint64 {
+	if x != nil {
+		return x.RequestId
+	}
+	return 0
+}
+
+type LeaseRevokeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Header        *ResponseHeader        `protobuf:"bytes,1,opt,name=header,proto3" json:"header,omitempty"`
+	Deleted       int64                  `protobuf:"varint,2,opt,name=deleted,proto3" json:"deleted,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LeaseRevokeResponse) Reset() {
+	*x = LeaseRevokeResponse{}
+	mi := &file_etcdlite_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LeaseRevokeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LeaseRevokeResponse) ProtoMessage() {}
+
+func (x *LeaseRevokeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_etcdlite_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LeaseRevokeResponse.ProtoReflect.Descriptor instead.
+func (*LeaseRevokeResponse) Descriptor() ([]byte, []int) {
+	return file_etcdlite_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *LeaseRevokeResponse) GetHeader() *ResponseHeader {
+	if x != nil {
+		return x.Header
+	}
+	return nil
+}
+
+func (x *LeaseRevokeResponse) GetDeleted() int64 {
+	if x != nil {
+		return x.Deleted
+	}
+	return 0
+}
+
 type StatusRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -1158,7 +1847,7 @@ type StatusRequest struct {
 
 func (x *StatusRequest) Reset() {
 	*x = StatusRequest{}
-	mi := &file_etcdlite_proto_msgTypes[13]
+	mi := &file_etcdlite_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1170,7 +1859,7 @@ func (x *StatusRequest) String() string {
 func (*StatusRequest) ProtoMessage() {}
 
 func (x *StatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[13]
+	mi := &file_etcdlite_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1183,7 +1872,7 @@ func (x *StatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusRequest.ProtoReflect.Descriptor instead.
 func (*StatusRequest) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{13}
+	return file_etcdlite_proto_rawDescGZIP(), []int{23}
 }
 
 type StatusResponse struct {
@@ -1200,7 +1889,7 @@ type StatusResponse struct {
 
 func (x *StatusResponse) Reset() {
 	*x = StatusResponse{}
-	mi := &file_etcdlite_proto_msgTypes[14]
+	mi := &file_etcdlite_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1212,7 +1901,7 @@ func (x *StatusResponse) String() string {
 func (*StatusResponse) ProtoMessage() {}
 
 func (x *StatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_etcdlite_proto_msgTypes[14]
+	mi := &file_etcdlite_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1225,7 +1914,7 @@ func (x *StatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusResponse.ProtoReflect.Descriptor instead.
 func (*StatusResponse) Descriptor() ([]byte, []int) {
-	return file_etcdlite_proto_rawDescGZIP(), []int{14}
+	return file_etcdlite_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *StatusResponse) GetHeader() *ResponseHeader {
@@ -1290,7 +1979,15 @@ const file_etcdlite_proto_rawDesc = "" +
 	"\fmod_revision\x18\x04 \x01(\x03R\vmodRevision\x12\x18\n" +
 	"\aversion\x18\x05 \x01(\x03R\aversion\x12\x19\n" +
 	"\blease_id\x18\x06 \x01(\x03R\aleaseId\x12\x1c\n" +
-	"\ttombstone\x18\a \x01(\bR\ttombstone\"\x88\x01\n" +
+	"\ttombstone\x18\a \x01(\bR\ttombstone\"0\n" +
+	"\bRevision\x12\x12\n" +
+	"\x04main\x18\x01 \x01(\x03R\x04main\x12\x10\n" +
+	"\x03sub\x18\x02 \x01(\x03R\x03sub\"\xbd\x01\n" +
+	"\x05Event\x12*\n" +
+	"\x04type\x18\x01 \x01(\x0e2\x16.etcdlite.v1.EventTypeR\x04type\x121\n" +
+	"\brevision\x18\x02 \x01(\v2\x15.etcdlite.v1.RevisionR\brevision\x12%\n" +
+	"\x02kv\x18\x03 \x01(\v2\x15.etcdlite.v1.KeyValueR\x02kv\x12.\n" +
+	"\aprev_kv\x18\x04 \x01(\v2\x15.etcdlite.v1.KeyValueR\x06prevKv\"\x88\x01\n" +
 	"\fRangeRequest\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\fR\x03key\x12\x10\n" +
 	"\x03end\x18\x02 \x01(\fR\x03end\x12\x14\n" +
@@ -1357,7 +2054,47 @@ const file_etcdlite_proto_rawDesc = "" +
 	"\vTxnResponse\x123\n" +
 	"\x06header\x18\x01 \x01(\v2\x1b.etcdlite.v1.ResponseHeaderR\x06header\x12\x1c\n" +
 	"\tsucceeded\x18\x02 \x01(\bR\tsucceeded\x125\n" +
-	"\tresponses\x18\x03 \x03(\v2\x17.etcdlite.v1.ResponseOpR\tresponses\"\x0f\n" +
+	"\tresponses\x18\x03 \x03(\v2\x17.etcdlite.v1.ResponseOpR\tresponses\"r\n" +
+	"\fWatchRequest\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\fR\x03key\x12\x10\n" +
+	"\x03end\x18\x02 \x01(\fR\x03end\x12%\n" +
+	"\x0estart_revision\x18\x03 \x01(\x03R\rstartRevision\x12\x17\n" +
+	"\aprev_kv\x18\x04 \x01(\bR\x06prevKv\"\x82\x02\n" +
+	"\rWatchResponse\x123\n" +
+	"\x06header\x18\x01 \x01(\v2\x1b.etcdlite.v1.ResponseHeaderR\x06header\x12\x19\n" +
+	"\bwatch_id\x18\x02 \x01(\x03R\awatchId\x12\x18\n" +
+	"\acreated\x18\x03 \x01(\bR\acreated\x12\x1a\n" +
+	"\bcanceled\x18\x04 \x01(\bR\bcanceled\x12\x14\n" +
+	"\x05error\x18\x05 \x01(\tR\x05error\x12)\n" +
+	"\x10compact_revision\x18\x06 \x01(\x03R\x0fcompactRevision\x12*\n" +
+	"\x06events\x18\a \x03(\v2\x12.etcdlite.v1.EventR\x06events\"|\n" +
+	"\x11LeaseGrantRequest\x12\x19\n" +
+	"\blease_id\x18\x01 \x01(\x03R\aleaseId\x12\x10\n" +
+	"\x03ttl\x18\x02 \x01(\x03R\x03ttl\x12\x1b\n" +
+	"\tclient_id\x18\x03 \x01(\x04R\bclientId\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x04 \x01(\x04R\trequestId\"v\n" +
+	"\x12LeaseGrantResponse\x123\n" +
+	"\x06header\x18\x01 \x01(\v2\x1b.etcdlite.v1.ResponseHeaderR\x06header\x12\x19\n" +
+	"\blease_id\x18\x02 \x01(\x03R\aleaseId\x12\x10\n" +
+	"\x03ttl\x18\x03 \x01(\x03R\x03ttl\"n\n" +
+	"\x15LeaseKeepAliveRequest\x12\x19\n" +
+	"\blease_id\x18\x01 \x01(\x03R\aleaseId\x12\x1b\n" +
+	"\tclient_id\x18\x02 \x01(\x04R\bclientId\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x03 \x01(\x04R\trequestId\"z\n" +
+	"\x16LeaseKeepAliveResponse\x123\n" +
+	"\x06header\x18\x01 \x01(\v2\x1b.etcdlite.v1.ResponseHeaderR\x06header\x12\x19\n" +
+	"\blease_id\x18\x02 \x01(\x03R\aleaseId\x12\x10\n" +
+	"\x03ttl\x18\x03 \x01(\x03R\x03ttl\"k\n" +
+	"\x12LeaseRevokeRequest\x12\x19\n" +
+	"\blease_id\x18\x01 \x01(\x03R\aleaseId\x12\x1b\n" +
+	"\tclient_id\x18\x02 \x01(\x04R\bclientId\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x03 \x01(\x04R\trequestId\"d\n" +
+	"\x13LeaseRevokeResponse\x123\n" +
+	"\x06header\x18\x01 \x01(\v2\x1b.etcdlite.v1.ResponseHeaderR\x06header\x12\x18\n" +
+	"\adeleted\x18\x02 \x01(\x03R\adeleted\"\x0f\n" +
 	"\rStatusRequest\"\xf0\x01\n" +
 	"\x0eStatusResponse\x123\n" +
 	"\x06header\x18\x01 \x01(\v2\x1b.etcdlite.v1.ResponseHeaderR\x06header\x12\x14\n" +
@@ -1365,7 +2102,11 @@ const file_etcdlite_proto_rawDesc = "" +
 	"\fcommit_index\x18\x03 \x01(\x04R\vcommitIndex\x12#\n" +
 	"\rapplied_index\x18\x04 \x01(\x04R\fappliedIndex\x12$\n" +
 	"\x0elast_log_index\x18\x05 \x01(\x04R\flastLogIndex\x12%\n" +
-	"\x0esnapshot_index\x18\x06 \x01(\x04R\rsnapshotIndex*\xc4\x01\n" +
+	"\x0esnapshot_index\x18\x06 \x01(\x04R\rsnapshotIndex*R\n" +
+	"\tEventType\x12\x1a\n" +
+	"\x16EVENT_TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
+	"\x0eEVENT_TYPE_PUT\x10\x01\x12\x15\n" +
+	"\x11EVENT_TYPE_DELETE\x10\x02*\xc4\x01\n" +
 	"\rCompareTarget\x12\x1e\n" +
 	"\x1aCOMPARE_TARGET_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16COMPARE_TARGET_VERSION\x10\x01\x12\"\n" +
@@ -1383,7 +2124,14 @@ const file_etcdlite_proto_rawDesc = "" +
 	"\x05Range\x12\x19.etcdlite.v1.RangeRequest\x1a\x1a.etcdlite.v1.RangeResponse\x128\n" +
 	"\x03Put\x12\x17.etcdlite.v1.PutRequest\x1a\x18.etcdlite.v1.PutResponse\x12P\n" +
 	"\vDeleteRange\x12\x1f.etcdlite.v1.DeleteRangeRequest\x1a .etcdlite.v1.DeleteRangeResponse\x128\n" +
-	"\x03Txn\x12\x17.etcdlite.v1.TxnRequest\x1a\x18.etcdlite.v1.TxnResponse2P\n" +
+	"\x03Txn\x12\x17.etcdlite.v1.TxnRequest\x1a\x18.etcdlite.v1.TxnResponse2I\n" +
+	"\x05Watch\x12@\n" +
+	"\x05Watch\x12\x19.etcdlite.v1.WatchRequest\x1a\x1a.etcdlite.v1.WatchResponse0\x012\x87\x02\n" +
+	"\x05Lease\x12M\n" +
+	"\n" +
+	"LeaseGrant\x12\x1e.etcdlite.v1.LeaseGrantRequest\x1a\x1f.etcdlite.v1.LeaseGrantResponse\x12]\n" +
+	"\x0eLeaseKeepAlive\x12\".etcdlite.v1.LeaseKeepAliveRequest\x1a#.etcdlite.v1.LeaseKeepAliveResponse(\x010\x01\x12P\n" +
+	"\vLeaseRevoke\x12\x1f.etcdlite.v1.LeaseRevokeRequest\x1a .etcdlite.v1.LeaseRevokeResponse2P\n" +
 	"\vMaintenance\x12A\n" +
 	"\x06Status\x12\x1a.etcdlite.v1.StatusRequest\x1a\x1b.etcdlite.v1.StatusResponseB;Z9github.com/HasonoCell/Etcd-Lite/api/etcdlitepb;etcdlitepbb\x06proto3"
 
@@ -1399,63 +2147,91 @@ func file_etcdlite_proto_rawDescGZIP() []byte {
 	return file_etcdlite_proto_rawDescData
 }
 
-var file_etcdlite_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_etcdlite_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_etcdlite_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_etcdlite_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_etcdlite_proto_goTypes = []any{
-	(CompareTarget)(0),          // 0: etcdlite.v1.CompareTarget
-	(CompareResult)(0),          // 1: etcdlite.v1.CompareResult
-	(*ResponseHeader)(nil),      // 2: etcdlite.v1.ResponseHeader
-	(*KeyValue)(nil),            // 3: etcdlite.v1.KeyValue
-	(*RangeRequest)(nil),        // 4: etcdlite.v1.RangeRequest
-	(*RangeResponse)(nil),       // 5: etcdlite.v1.RangeResponse
-	(*PutRequest)(nil),          // 6: etcdlite.v1.PutRequest
-	(*PutResponse)(nil),         // 7: etcdlite.v1.PutResponse
-	(*DeleteRangeRequest)(nil),  // 8: etcdlite.v1.DeleteRangeRequest
-	(*DeleteRangeResponse)(nil), // 9: etcdlite.v1.DeleteRangeResponse
-	(*Compare)(nil),             // 10: etcdlite.v1.Compare
-	(*RequestOp)(nil),           // 11: etcdlite.v1.RequestOp
-	(*ResponseOp)(nil),          // 12: etcdlite.v1.ResponseOp
-	(*TxnRequest)(nil),          // 13: etcdlite.v1.TxnRequest
-	(*TxnResponse)(nil),         // 14: etcdlite.v1.TxnResponse
-	(*StatusRequest)(nil),       // 15: etcdlite.v1.StatusRequest
-	(*StatusResponse)(nil),      // 16: etcdlite.v1.StatusResponse
+	(EventType)(0),                 // 0: etcdlite.v1.EventType
+	(CompareTarget)(0),             // 1: etcdlite.v1.CompareTarget
+	(CompareResult)(0),             // 2: etcdlite.v1.CompareResult
+	(*ResponseHeader)(nil),         // 3: etcdlite.v1.ResponseHeader
+	(*KeyValue)(nil),               // 4: etcdlite.v1.KeyValue
+	(*Revision)(nil),               // 5: etcdlite.v1.Revision
+	(*Event)(nil),                  // 6: etcdlite.v1.Event
+	(*RangeRequest)(nil),           // 7: etcdlite.v1.RangeRequest
+	(*RangeResponse)(nil),          // 8: etcdlite.v1.RangeResponse
+	(*PutRequest)(nil),             // 9: etcdlite.v1.PutRequest
+	(*PutResponse)(nil),            // 10: etcdlite.v1.PutResponse
+	(*DeleteRangeRequest)(nil),     // 11: etcdlite.v1.DeleteRangeRequest
+	(*DeleteRangeResponse)(nil),    // 12: etcdlite.v1.DeleteRangeResponse
+	(*Compare)(nil),                // 13: etcdlite.v1.Compare
+	(*RequestOp)(nil),              // 14: etcdlite.v1.RequestOp
+	(*ResponseOp)(nil),             // 15: etcdlite.v1.ResponseOp
+	(*TxnRequest)(nil),             // 16: etcdlite.v1.TxnRequest
+	(*TxnResponse)(nil),            // 17: etcdlite.v1.TxnResponse
+	(*WatchRequest)(nil),           // 18: etcdlite.v1.WatchRequest
+	(*WatchResponse)(nil),          // 19: etcdlite.v1.WatchResponse
+	(*LeaseGrantRequest)(nil),      // 20: etcdlite.v1.LeaseGrantRequest
+	(*LeaseGrantResponse)(nil),     // 21: etcdlite.v1.LeaseGrantResponse
+	(*LeaseKeepAliveRequest)(nil),  // 22: etcdlite.v1.LeaseKeepAliveRequest
+	(*LeaseKeepAliveResponse)(nil), // 23: etcdlite.v1.LeaseKeepAliveResponse
+	(*LeaseRevokeRequest)(nil),     // 24: etcdlite.v1.LeaseRevokeRequest
+	(*LeaseRevokeResponse)(nil),    // 25: etcdlite.v1.LeaseRevokeResponse
+	(*StatusRequest)(nil),          // 26: etcdlite.v1.StatusRequest
+	(*StatusResponse)(nil),         // 27: etcdlite.v1.StatusResponse
 }
 var file_etcdlite_proto_depIdxs = []int32{
-	2,  // 0: etcdlite.v1.RangeResponse.header:type_name -> etcdlite.v1.ResponseHeader
-	3,  // 1: etcdlite.v1.RangeResponse.kvs:type_name -> etcdlite.v1.KeyValue
-	2,  // 2: etcdlite.v1.PutResponse.header:type_name -> etcdlite.v1.ResponseHeader
-	3,  // 3: etcdlite.v1.PutResponse.prev_kv:type_name -> etcdlite.v1.KeyValue
-	2,  // 4: etcdlite.v1.DeleteRangeResponse.header:type_name -> etcdlite.v1.ResponseHeader
-	3,  // 5: etcdlite.v1.DeleteRangeResponse.prev_kvs:type_name -> etcdlite.v1.KeyValue
-	0,  // 6: etcdlite.v1.Compare.target:type_name -> etcdlite.v1.CompareTarget
-	1,  // 7: etcdlite.v1.Compare.result:type_name -> etcdlite.v1.CompareResult
-	4,  // 8: etcdlite.v1.RequestOp.request_range:type_name -> etcdlite.v1.RangeRequest
-	6,  // 9: etcdlite.v1.RequestOp.request_put:type_name -> etcdlite.v1.PutRequest
-	8,  // 10: etcdlite.v1.RequestOp.request_delete_range:type_name -> etcdlite.v1.DeleteRangeRequest
-	5,  // 11: etcdlite.v1.ResponseOp.response_range:type_name -> etcdlite.v1.RangeResponse
-	7,  // 12: etcdlite.v1.ResponseOp.response_put:type_name -> etcdlite.v1.PutResponse
-	9,  // 13: etcdlite.v1.ResponseOp.response_delete_range:type_name -> etcdlite.v1.DeleteRangeResponse
-	10, // 14: etcdlite.v1.TxnRequest.compare:type_name -> etcdlite.v1.Compare
-	11, // 15: etcdlite.v1.TxnRequest.success:type_name -> etcdlite.v1.RequestOp
-	11, // 16: etcdlite.v1.TxnRequest.failure:type_name -> etcdlite.v1.RequestOp
-	2,  // 17: etcdlite.v1.TxnResponse.header:type_name -> etcdlite.v1.ResponseHeader
-	12, // 18: etcdlite.v1.TxnResponse.responses:type_name -> etcdlite.v1.ResponseOp
-	2,  // 19: etcdlite.v1.StatusResponse.header:type_name -> etcdlite.v1.ResponseHeader
-	4,  // 20: etcdlite.v1.KV.Range:input_type -> etcdlite.v1.RangeRequest
-	6,  // 21: etcdlite.v1.KV.Put:input_type -> etcdlite.v1.PutRequest
-	8,  // 22: etcdlite.v1.KV.DeleteRange:input_type -> etcdlite.v1.DeleteRangeRequest
-	13, // 23: etcdlite.v1.KV.Txn:input_type -> etcdlite.v1.TxnRequest
-	15, // 24: etcdlite.v1.Maintenance.Status:input_type -> etcdlite.v1.StatusRequest
-	5,  // 25: etcdlite.v1.KV.Range:output_type -> etcdlite.v1.RangeResponse
-	7,  // 26: etcdlite.v1.KV.Put:output_type -> etcdlite.v1.PutResponse
-	9,  // 27: etcdlite.v1.KV.DeleteRange:output_type -> etcdlite.v1.DeleteRangeResponse
-	14, // 28: etcdlite.v1.KV.Txn:output_type -> etcdlite.v1.TxnResponse
-	16, // 29: etcdlite.v1.Maintenance.Status:output_type -> etcdlite.v1.StatusResponse
-	25, // [25:30] is the sub-list for method output_type
-	20, // [20:25] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	0,  // 0: etcdlite.v1.Event.type:type_name -> etcdlite.v1.EventType
+	5,  // 1: etcdlite.v1.Event.revision:type_name -> etcdlite.v1.Revision
+	4,  // 2: etcdlite.v1.Event.kv:type_name -> etcdlite.v1.KeyValue
+	4,  // 3: etcdlite.v1.Event.prev_kv:type_name -> etcdlite.v1.KeyValue
+	3,  // 4: etcdlite.v1.RangeResponse.header:type_name -> etcdlite.v1.ResponseHeader
+	4,  // 5: etcdlite.v1.RangeResponse.kvs:type_name -> etcdlite.v1.KeyValue
+	3,  // 6: etcdlite.v1.PutResponse.header:type_name -> etcdlite.v1.ResponseHeader
+	4,  // 7: etcdlite.v1.PutResponse.prev_kv:type_name -> etcdlite.v1.KeyValue
+	3,  // 8: etcdlite.v1.DeleteRangeResponse.header:type_name -> etcdlite.v1.ResponseHeader
+	4,  // 9: etcdlite.v1.DeleteRangeResponse.prev_kvs:type_name -> etcdlite.v1.KeyValue
+	1,  // 10: etcdlite.v1.Compare.target:type_name -> etcdlite.v1.CompareTarget
+	2,  // 11: etcdlite.v1.Compare.result:type_name -> etcdlite.v1.CompareResult
+	7,  // 12: etcdlite.v1.RequestOp.request_range:type_name -> etcdlite.v1.RangeRequest
+	9,  // 13: etcdlite.v1.RequestOp.request_put:type_name -> etcdlite.v1.PutRequest
+	11, // 14: etcdlite.v1.RequestOp.request_delete_range:type_name -> etcdlite.v1.DeleteRangeRequest
+	8,  // 15: etcdlite.v1.ResponseOp.response_range:type_name -> etcdlite.v1.RangeResponse
+	10, // 16: etcdlite.v1.ResponseOp.response_put:type_name -> etcdlite.v1.PutResponse
+	12, // 17: etcdlite.v1.ResponseOp.response_delete_range:type_name -> etcdlite.v1.DeleteRangeResponse
+	13, // 18: etcdlite.v1.TxnRequest.compare:type_name -> etcdlite.v1.Compare
+	14, // 19: etcdlite.v1.TxnRequest.success:type_name -> etcdlite.v1.RequestOp
+	14, // 20: etcdlite.v1.TxnRequest.failure:type_name -> etcdlite.v1.RequestOp
+	3,  // 21: etcdlite.v1.TxnResponse.header:type_name -> etcdlite.v1.ResponseHeader
+	15, // 22: etcdlite.v1.TxnResponse.responses:type_name -> etcdlite.v1.ResponseOp
+	3,  // 23: etcdlite.v1.WatchResponse.header:type_name -> etcdlite.v1.ResponseHeader
+	6,  // 24: etcdlite.v1.WatchResponse.events:type_name -> etcdlite.v1.Event
+	3,  // 25: etcdlite.v1.LeaseGrantResponse.header:type_name -> etcdlite.v1.ResponseHeader
+	3,  // 26: etcdlite.v1.LeaseKeepAliveResponse.header:type_name -> etcdlite.v1.ResponseHeader
+	3,  // 27: etcdlite.v1.LeaseRevokeResponse.header:type_name -> etcdlite.v1.ResponseHeader
+	3,  // 28: etcdlite.v1.StatusResponse.header:type_name -> etcdlite.v1.ResponseHeader
+	7,  // 29: etcdlite.v1.KV.Range:input_type -> etcdlite.v1.RangeRequest
+	9,  // 30: etcdlite.v1.KV.Put:input_type -> etcdlite.v1.PutRequest
+	11, // 31: etcdlite.v1.KV.DeleteRange:input_type -> etcdlite.v1.DeleteRangeRequest
+	16, // 32: etcdlite.v1.KV.Txn:input_type -> etcdlite.v1.TxnRequest
+	18, // 33: etcdlite.v1.Watch.Watch:input_type -> etcdlite.v1.WatchRequest
+	20, // 34: etcdlite.v1.Lease.LeaseGrant:input_type -> etcdlite.v1.LeaseGrantRequest
+	22, // 35: etcdlite.v1.Lease.LeaseKeepAlive:input_type -> etcdlite.v1.LeaseKeepAliveRequest
+	24, // 36: etcdlite.v1.Lease.LeaseRevoke:input_type -> etcdlite.v1.LeaseRevokeRequest
+	26, // 37: etcdlite.v1.Maintenance.Status:input_type -> etcdlite.v1.StatusRequest
+	8,  // 38: etcdlite.v1.KV.Range:output_type -> etcdlite.v1.RangeResponse
+	10, // 39: etcdlite.v1.KV.Put:output_type -> etcdlite.v1.PutResponse
+	12, // 40: etcdlite.v1.KV.DeleteRange:output_type -> etcdlite.v1.DeleteRangeResponse
+	17, // 41: etcdlite.v1.KV.Txn:output_type -> etcdlite.v1.TxnResponse
+	19, // 42: etcdlite.v1.Watch.Watch:output_type -> etcdlite.v1.WatchResponse
+	21, // 43: etcdlite.v1.Lease.LeaseGrant:output_type -> etcdlite.v1.LeaseGrantResponse
+	23, // 44: etcdlite.v1.Lease.LeaseKeepAlive:output_type -> etcdlite.v1.LeaseKeepAliveResponse
+	25, // 45: etcdlite.v1.Lease.LeaseRevoke:output_type -> etcdlite.v1.LeaseRevokeResponse
+	27, // 46: etcdlite.v1.Maintenance.Status:output_type -> etcdlite.v1.StatusResponse
+	38, // [38:47] is the sub-list for method output_type
+	29, // [29:38] is the sub-list for method input_type
+	29, // [29:29] is the sub-list for extension type_name
+	29, // [29:29] is the sub-list for extension extendee
+	0,  // [0:29] is the sub-list for field type_name
 }
 
 func init() { file_etcdlite_proto_init() }
@@ -1463,12 +2239,12 @@ func file_etcdlite_proto_init() {
 	if File_etcdlite_proto != nil {
 		return
 	}
-	file_etcdlite_proto_msgTypes[9].OneofWrappers = []any{
+	file_etcdlite_proto_msgTypes[11].OneofWrappers = []any{
 		(*RequestOp_RequestRange)(nil),
 		(*RequestOp_RequestPut)(nil),
 		(*RequestOp_RequestDeleteRange)(nil),
 	}
-	file_etcdlite_proto_msgTypes[10].OneofWrappers = []any{
+	file_etcdlite_proto_msgTypes[12].OneofWrappers = []any{
 		(*ResponseOp_ResponseRange)(nil),
 		(*ResponseOp_ResponsePut)(nil),
 		(*ResponseOp_ResponseDeleteRange)(nil),
@@ -1478,10 +2254,10 @@ func file_etcdlite_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_etcdlite_proto_rawDesc), len(file_etcdlite_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   15,
+			NumEnums:      3,
+			NumMessages:   25,
 			NumExtensions: 0,
-			NumServices:   2,
+			NumServices:   4,
 		},
 		GoTypes:           file_etcdlite_proto_goTypes,
 		DependencyIndexes: file_etcdlite_proto_depIdxs,

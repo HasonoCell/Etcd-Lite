@@ -16,14 +16,16 @@ import (
 )
 
 type testCluster struct {
-	t           *testing.T
-	ids         []core.MemberID
-	transport   *local.Transport
-	nodes       map[core.MemberID]*Server
-	grpcServers map[core.MemberID]*grpc.Server
-	conns       map[core.MemberID]*grpc.ClientConn
-	kvClients   map[core.MemberID]etcdlitepb.KVClient
-	mtClients   map[core.MemberID]etcdlitepb.MaintenanceClient
+	t            *testing.T
+	ids          []core.MemberID
+	transport    *local.Transport
+	nodes        map[core.MemberID]*Server
+	grpcServers  map[core.MemberID]*grpc.Server
+	conns        map[core.MemberID]*grpc.ClientConn
+	kvClients    map[core.MemberID]etcdlitepb.KVClient
+	watchClients map[core.MemberID]etcdlitepb.WatchClient
+	leaseClients map[core.MemberID]etcdlitepb.LeaseClient
+	mtClients    map[core.MemberID]etcdlitepb.MaintenanceClient
 }
 
 func TestKVRequestsFollowLeaderHintAndUseReadIndex(t *testing.T) {
@@ -153,6 +155,113 @@ func TestKVTxnThroughLeaderHintAndReadOnlyTxn(t *testing.T) {
 	}
 }
 
+func TestWatchReceivesHistoryAndLiveEvents(t *testing.T) {
+	c := newTestCluster(t, []core.MemberID{1, 2, 3})
+	defer c.stop()
+
+	leader := c.waitLeader()
+	c.put(leader, &etcdlitepb.PutRequest{
+		Key:       []byte("/watch/a"),
+		Value:     []byte("v1"),
+		ClientId:  400,
+		RequestId: 1,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	stream, err := c.watchClients[leader].Watch(ctx, &etcdlitepb.WatchRequest{
+		Key:           []byte("/watch/"),
+		End:           []byte("/watch0"),
+		StartRevision: 0,
+		PrevKv:        true,
+	})
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	created := mustRecvWatch(t, stream)
+	if !created.GetCreated() {
+		t.Fatalf("first watch response = %+v, want created", created)
+	}
+	history := mustRecvWatch(t, stream)
+	if len(history.GetEvents()) != 1 || string(history.GetEvents()[0].GetKv().GetValue()) != "v1" {
+		t.Fatalf("history watch response = %+v", history)
+	}
+
+	c.put(leader, &etcdlitepb.PutRequest{
+		Key:       []byte("/watch/a"),
+		Value:     []byte("v2"),
+		PrevKv:    true,
+		ClientId:  400,
+		RequestId: 2,
+	})
+	live := mustRecvWatch(t, stream)
+	if len(live.GetEvents()) != 1 || string(live.GetEvents()[0].GetKv().GetValue()) != "v2" {
+		t.Fatalf("live watch response = %+v", live)
+	}
+	if live.GetEvents()[0].GetPrevKv() == nil || string(live.GetEvents()[0].GetPrevKv().GetValue()) != "v1" {
+		t.Fatalf("live PrevKV = %+v", live.GetEvents()[0].GetPrevKv())
+	}
+}
+
+func TestLeaseGrantRevokeAndExpirationDeleteKeys(t *testing.T) {
+	c := newTestCluster(t, []core.MemberID{1, 2, 3})
+	defer c.stop()
+
+	leader := c.waitLeader()
+	grant := c.leaseGrant(leader, &etcdlitepb.LeaseGrantRequest{
+		LeaseId:   500,
+		Ttl:       5,
+		ClientId:  500,
+		RequestId: 1,
+	})
+	if grant.GetLeaseId() != 500 || grant.GetTtl() != 5 {
+		t.Fatalf("grant = %+v", grant)
+	}
+
+	c.put(leader, &etcdlitepb.PutRequest{
+		Key:       []byte("/lease/revoke"),
+		Value:     []byte("v"),
+		LeaseId:   500,
+		ClientId:  500,
+		RequestId: 2,
+	})
+	revoke := c.leaseRevoke(leader, &etcdlitepb.LeaseRevokeRequest{
+		LeaseId:   500,
+		ClientId:  500,
+		RequestId: 3,
+	})
+	if revoke.GetDeleted() != 1 {
+		t.Fatalf("revoke = %+v", revoke)
+	}
+	empty := c.rangeKV(leader, &etcdlitepb.RangeRequest{Key: []byte("/lease/revoke")})
+	if empty.GetCount() != 0 {
+		t.Fatalf("range after revoke = %+v", empty)
+	}
+
+	c.leaseGrant(leader, &etcdlitepb.LeaseGrantRequest{
+		LeaseId:   501,
+		Ttl:       1,
+		ClientId:  500,
+		RequestId: 4,
+	})
+	c.put(leader, &etcdlitepb.PutRequest{
+		Key:       []byte("/lease/expire"),
+		Value:     []byte("v"),
+		LeaseId:   501,
+		ClientId:  500,
+		RequestId: 5,
+	})
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		resp := c.rangeKV(leader, &etcdlitepb.RangeRequest{Key: []byte("/lease/expire")})
+		if resp.GetCount() == 0 {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("lease expiration did not delete key")
+}
+
 func TestMaintenanceStatusReportsRaftAndMVCCState(t *testing.T) {
 	c := newTestCluster(t, []core.MemberID{1, 2, 3})
 	defer c.stop()
@@ -185,14 +294,16 @@ func TestMaintenanceStatusReportsRaftAndMVCCState(t *testing.T) {
 func newTestCluster(t *testing.T, ids []core.MemberID) *testCluster {
 	t.Helper()
 	c := &testCluster{
-		t:           t,
-		ids:         append([]core.MemberID(nil), ids...),
-		transport:   local.New(),
-		nodes:       make(map[core.MemberID]*Server),
-		grpcServers: make(map[core.MemberID]*grpc.Server),
-		conns:       make(map[core.MemberID]*grpc.ClientConn),
-		kvClients:   make(map[core.MemberID]etcdlitepb.KVClient),
-		mtClients:   make(map[core.MemberID]etcdlitepb.MaintenanceClient),
+		t:            t,
+		ids:          append([]core.MemberID(nil), ids...),
+		transport:    local.New(),
+		nodes:        make(map[core.MemberID]*Server),
+		grpcServers:  make(map[core.MemberID]*grpc.Server),
+		conns:        make(map[core.MemberID]*grpc.ClientConn),
+		kvClients:    make(map[core.MemberID]etcdlitepb.KVClient),
+		watchClients: make(map[core.MemberID]etcdlitepb.WatchClient),
+		leaseClients: make(map[core.MemberID]etcdlitepb.LeaseClient),
+		mtClients:    make(map[core.MemberID]etcdlitepb.MaintenanceClient),
 	}
 	for _, id := range ids {
 		node, err := New(Config{
@@ -237,6 +348,8 @@ func (c *testCluster) startGRPC(id core.MemberID, node *Server) {
 	}
 	c.conns[id] = conn
 	c.kvClients[id] = etcdlitepb.NewKVClient(conn)
+	c.watchClients[id] = etcdlitepb.NewWatchClient(conn)
+	c.leaseClients[id] = etcdlitepb.NewLeaseClient(conn)
 	c.mtClients[id] = etcdlitepb.NewMaintenanceClient(conn)
 }
 
@@ -365,6 +478,46 @@ func (c *testCluster) txn(start core.MemberID, req *etcdlitepb.TxnRequest) *etcd
 	return nil
 }
 
+func (c *testCluster) leaseGrant(start core.MemberID, req *etcdlitepb.LeaseGrantRequest) *etcdlitepb.LeaseGrantResponse {
+	c.t.Helper()
+	current := start
+	for i := 0; i < 8; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		resp, err := c.leaseClients[current].LeaseGrant(ctx, req)
+		cancel()
+		if err != nil {
+			c.t.Fatalf("LeaseGrant through %d: %v", current, err)
+		}
+		if resp.GetHeader().GetError() == "" {
+			return resp
+		}
+		current = c.nextAttempt(current, resp.GetHeader())
+		time.Sleep(20 * time.Millisecond)
+	}
+	c.t.Fatalf("LeaseGrant did not reach leader")
+	return nil
+}
+
+func (c *testCluster) leaseRevoke(start core.MemberID, req *etcdlitepb.LeaseRevokeRequest) *etcdlitepb.LeaseRevokeResponse {
+	c.t.Helper()
+	current := start
+	for i := 0; i < 8; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		resp, err := c.leaseClients[current].LeaseRevoke(ctx, req)
+		cancel()
+		if err != nil {
+			c.t.Fatalf("LeaseRevoke through %d: %v", current, err)
+		}
+		if resp.GetHeader().GetError() == "" {
+			return resp
+		}
+		current = c.nextAttempt(current, resp.GetHeader())
+		time.Sleep(20 * time.Millisecond)
+	}
+	c.t.Fatalf("LeaseRevoke did not reach leader")
+	return nil
+}
+
 func (c *testCluster) nextAttempt(current core.MemberID, header *etcdlitepb.ResponseHeader) core.MemberID {
 	c.t.Helper()
 	if header.GetError() != errorNotLeader {
@@ -374,6 +527,29 @@ func (c *testCluster) nextAttempt(current core.MemberID, header *etcdlitepb.Resp
 		return leader
 	}
 	return c.waitLeader()
+}
+
+func mustRecvWatch(t *testing.T, stream etcdlitepb.Watch_WatchClient) *etcdlitepb.WatchResponse {
+	t.Helper()
+	type watchResult struct {
+		resp *etcdlitepb.WatchResponse
+		err  error
+	}
+	ch := make(chan watchResult, 1)
+	go func() {
+		resp, err := stream.Recv()
+		ch <- watchResult{resp: resp, err: err}
+	}()
+	select {
+	case result := <-ch:
+		if result.err != nil {
+			t.Fatalf("Watch Recv: %v", result.err)
+		}
+		return result.resp
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for watch response")
+		return nil
+	}
 }
 
 func putOp(key string, value string) *etcdlitepb.RequestOp {

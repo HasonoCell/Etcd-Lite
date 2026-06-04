@@ -3,22 +3,26 @@ package server
 import (
 	"context"
 	"errors"
+	"io"
 	"sync"
 	"time"
 
 	"github.com/HasonoCell/Etcd-Lite/api/etcdlitepb"
 	"github.com/HasonoCell/Etcd-Lite/mvcc"
 	"github.com/HasonoCell/Etcd-Lite/raft/core"
+	"github.com/HasonoCell/Etcd-Lite/watch"
 	"google.golang.org/grpc"
 )
 
 const (
-	defaultRequestTimeout = 3 * time.Second
-	maxCachedRequests     = 1024
-	maxCachedApplyIndex   = 1024
+	defaultRequestTimeout     = 3 * time.Second
+	defaultLeaseCheckInterval = 100 * time.Millisecond
+	maxCachedRequests         = 1024
+	maxCachedApplyIndex       = 1024
 
 	errorNotLeader     = "not_leader"
 	errorApplyMismatch = "apply_mismatch"
+	errorWatcherSlow   = "watcher_slow"
 )
 
 var (
@@ -41,10 +45,13 @@ type Config struct {
 
 type Server struct {
 	etcdlitepb.UnimplementedKVServer
+	etcdlitepb.UnimplementedWatchServer
+	etcdlitepb.UnimplementedLeaseServer
 	etcdlitepb.UnimplementedMaintenanceServer
 
 	raft           *core.Raft // raft 共识层
 	store          mvcc.Store // mvcc 状态机
+	watchHub       *watch.Hub
 	applyCh        chan core.ApplyMsg
 	requestTimeout time.Duration
 	stopCh         chan struct{}
@@ -116,6 +123,7 @@ func New(cfg Config) (*Server, error) {
 	s := &Server{
 		raft:           rf,
 		store:          cfg.Store,
+		watchHub:       watch.New(watch.Config{}),
 		applyCh:        cfg.ApplyCh,
 		requestTimeout: cfg.RequestTimeout,
 		stopCh:         make(chan struct{}),
@@ -126,12 +134,15 @@ func New(cfg Config) (*Server, error) {
 		appliedIndex:   rf.Status().AppliedIndex,
 	}
 	go s.applyLoop()
+	go s.leaseExpirationLoop()
 	return s, nil
 }
 
 // Register 将 KV 和 Maintenance service 注册到同一个 gRPC server 上。
 func (s *Server) Register(grpcServer *grpc.Server) {
 	etcdlitepb.RegisterKVServer(grpcServer, s)
+	etcdlitepb.RegisterWatchServer(grpcServer, s)
+	etcdlitepb.RegisterLeaseServer(grpcServer, s)
 	etcdlitepb.RegisterMaintenanceServer(grpcServer, s)
 }
 
@@ -271,6 +282,168 @@ func (s *Server) Txn(ctx context.Context, req *etcdlitepb.TxnRequest) (*etcdlite
 	}, nil
 }
 
+// watch 请求，不会走 raft log，分为两个阶段：history replay 和 live watch
+// 前者从 start revision 开始重放已存在的 event，后者在所有历史 event 重放后监听未来 event
+func (s *Server) Watch(req *etcdlitepb.WatchRequest, stream grpc.ServerStreamingServer[etcdlitepb.WatchResponse]) error {
+	if err := mvcc.ValidateKeyRange(req.GetKey(), req.GetEnd()); err != nil {
+		return stream.Send(&etcdlitepb.WatchResponse{
+			Header: s.errorHeader(err.Error(), 0),
+			Error:  err.Error(),
+		})
+	}
+
+	// 先注册 watcher 再重放 history event，目的是不让重放过程中可能到达的新 event 丢失
+	watcher := s.watchHub.Register(stream.Context(), req.GetKey(), req.GetEnd(), req.GetPrevKv())
+	defer watcher.Close()
+
+	// 响应一次客户端 watcher 已创建
+	if err := stream.Send(&etcdlitepb.WatchResponse{
+		Header:  s.header(s.store.CurrentRevision(), 0, ""),
+		WatchId: watcher.ID(),
+		Created: true,
+	}); err != nil {
+		return err
+	}
+
+	fromRevision := req.GetStartRevision() + 1
+	if fromRevision <= 0 {
+		// 如果客户端没有指定 start revision，就从当前 revision 之后开始，表示只看未来新 event
+		fromRevision = s.store.CurrentRevision() + 1
+	}
+
+	// 处理历史
+	history, err := s.store.History(mvcc.HistoryRequest{FromRevision: fromRevision})
+	if err != nil {
+		return stream.Send(&etcdlitepb.WatchResponse{
+			Header:          s.errorHeader(err.Error(), 0),
+			WatchId:         watcher.ID(),
+			Canceled:        true,
+			Error:           err.Error(),
+			CompactRevision: history.Revision,
+		})
+	}
+	lastSentRevision := req.GetStartRevision()
+	if err := s.sendWatchEvents(stream, watcher.ID(), req.GetKey(), req.GetEnd(), req.GetPrevKv(), history.Events, &lastSentRevision); err != nil {
+		return err
+	}
+
+	// 处理未来
+	for {
+		select {
+		case <-stream.Context().Done():
+			return stream.Context().Err()
+		// mvcc 一旦有新 event batch 发给 watcher，继续发送给客户端
+		case batch, ok := <-watcher.Events():
+			if !ok {
+				return stream.Send(&etcdlitepb.WatchResponse{
+					Header:   s.errorHeader(errorWatcherSlow, 0),
+					WatchId:  watcher.ID(),
+					Canceled: true,
+					Error:    errorWatcherSlow,
+				})
+			}
+			if err := s.sendWatchEvents(stream, watcher.ID(), req.GetKey(), req.GetEnd(), req.GetPrevKv(), batch.Events, &lastSentRevision); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// 创建 lease 请求
+func (s *Server) LeaseGrant(ctx context.Context, req *etcdlitepb.LeaseGrantRequest) (*etcdlitepb.LeaseGrantResponse, error) {
+	ctx, cancel := s.withRequestTimeout(ctx)
+	defer cancel()
+
+	result, err := s.submit(ctx, mvcc.Command{
+		ID:   mvcc.RequestID{ClientID: req.GetClientId(), RequestID: req.GetRequestId()},
+		Kind: mvcc.CommandLeaseGrant,
+		LeaseGrant: &mvcc.LeaseGrantCommand{
+			LeaseID:     req.GetLeaseId(),
+			TTL:         req.GetTtl(),
+			NowUnixNano: time.Now().UnixNano(),
+		},
+	})
+	if err != nil {
+		return &etcdlitepb.LeaseGrantResponse{Header: s.errorHeader(errorString(err), 0)}, nil
+	}
+	if result.result.LeaseGrant == nil {
+		return &etcdlitepb.LeaseGrantResponse{Header: s.errorHeader(errorApplyMismatch, result.index)}, nil
+	}
+	resp := result.result.LeaseGrant
+	return &etcdlitepb.LeaseGrantResponse{
+		Header:  s.header(result.result.Revision, result.index, ""),
+		LeaseId: resp.LeaseID,
+		Ttl:     resp.TTL,
+	}, nil
+}
+
+// 续租 lease 请求
+func (s *Server) LeaseKeepAlive(stream grpc.BidiStreamingServer[etcdlitepb.LeaseKeepAliveRequest, etcdlitepb.LeaseKeepAliveResponse]) error {
+	// 续租基于 stream，客户端可以在一个 stream 里连续发送保活请求
+	for {
+		req, err := stream.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+
+		ctx, cancel := s.withRequestTimeout(stream.Context())
+		result, submitErr := s.submit(ctx, mvcc.Command{
+			ID:   mvcc.RequestID{ClientID: req.GetClientId(), RequestID: req.GetRequestId()},
+			Kind: mvcc.CommandLeaseKeepAlive,
+			LeaseKeepAlive: &mvcc.LeaseKeepAliveCommand{
+				LeaseID:     req.GetLeaseId(),
+				NowUnixNano: time.Now().UnixNano(),
+			},
+		})
+		cancel()
+
+		var resp *etcdlitepb.LeaseKeepAliveResponse
+		if submitErr != nil {
+			resp = &etcdlitepb.LeaseKeepAliveResponse{Header: s.errorHeader(errorString(submitErr), 0)}
+		} else if result.result.LeaseKeepAlive == nil {
+			resp = &etcdlitepb.LeaseKeepAliveResponse{Header: s.errorHeader(errorApplyMismatch, result.index)}
+		} else {
+			keepAlive := result.result.LeaseKeepAlive
+			resp = &etcdlitepb.LeaseKeepAliveResponse{
+				Header:  s.header(result.result.Revision, result.index, ""),
+				LeaseId: keepAlive.LeaseID,
+				Ttl:     keepAlive.TTL,
+			}
+		}
+		if err := stream.Send(resp); err != nil {
+			return err
+		}
+	}
+}
+
+// 删除 lease 及其 keys 请求
+func (s *Server) LeaseRevoke(ctx context.Context, req *etcdlitepb.LeaseRevokeRequest) (*etcdlitepb.LeaseRevokeResponse, error) {
+	ctx, cancel := s.withRequestTimeout(ctx)
+	defer cancel()
+
+	result, err := s.submit(ctx, mvcc.Command{
+		ID:   mvcc.RequestID{ClientID: req.GetClientId(), RequestID: req.GetRequestId()},
+		Kind: mvcc.CommandLeaseRevoke,
+		LeaseRevoke: &mvcc.LeaseRevokeCommand{
+			LeaseID: req.GetLeaseId(),
+		},
+	})
+	if err != nil {
+		return &etcdlitepb.LeaseRevokeResponse{Header: s.errorHeader(errorString(err), 0)}, nil
+	}
+	if result.result.LeaseRevoke == nil {
+		return &etcdlitepb.LeaseRevokeResponse{Header: s.errorHeader(errorApplyMismatch, result.index)}, nil
+	}
+	revoke := result.result.LeaseRevoke
+	return &etcdlitepb.LeaseRevokeResponse{
+		Header:  s.header(revoke.Revision, result.index, ""),
+		Deleted: revoke.Deleted,
+	}, nil
+}
+
 func (s *Server) Status(context.Context, *etcdlitepb.StatusRequest) (*etcdlitepb.StatusResponse, error) {
 	status := s.raft.Status()
 	return &etcdlitepb.StatusResponse{
@@ -363,6 +536,10 @@ func (s *Server) applyLoop() {
 			}
 			// command 成功 apply 后走 finishApply
 			s.finishApply(result)
+			// 然后就可以对 watcher 发布消息了
+			if result.err == nil && len(result.result.Events) > 0 {
+				s.watchHub.Publish(result.result.Events)
+			}
 		}
 	}
 }
@@ -401,7 +578,7 @@ func (s *Server) finishApply(result applyResult) {
 		}
 	}
 
-	// 将 result 传入 waiter chan
+	// 将 result 传入 waiter chan，唤醒对应阻塞的 grpc 请求
 	if waiter, ok := s.waiters[result.index]; ok {
 		delete(s.waiters, result.index)
 		waiter <- result
@@ -468,6 +645,43 @@ func (s *Server) waitApplied(ctx context.Context, index uint64) error {
 	}
 }
 
+// 只有 leader 扫描过期 lease。
+// leader 发现 lease 到期后提交 CommandLeaseRevoke 到 raft，保证所有节点删除相同的 keys。
+func (s *Server) leaseExpirationLoop() {
+	ticker := time.NewTicker(defaultLeaseCheckInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+			status := s.raft.Status()
+			if status.State != core.StateLeader {
+				continue
+			}
+			leases, err := s.store.Leases()
+			if err != nil {
+				continue
+			}
+			// 判断是否过期
+			now := time.Now().UnixNano()
+			for _, record := range leases {
+				if record.ExpireAtUnixNano <= 0 || record.ExpireAtUnixNano > now {
+					continue
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), s.requestTimeout)
+				_, _ = s.submit(ctx, mvcc.Command{
+					Kind: mvcc.CommandLeaseRevoke,
+					LeaseRevoke: &mvcc.LeaseRevokeCommand{
+						LeaseID: record.LeaseID,
+					},
+				})
+				cancel()
+			}
+		}
+	}
+}
+
 func (s *Server) withRequestTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	if _, ok := ctx.Deadline(); ok {
 		return ctx, func() {}
@@ -524,6 +738,73 @@ func keyValueToProto(kv mvcc.KeyValue) *etcdlitepb.KeyValue {
 		Version:        kv.Version,
 		LeaseId:        kv.LeaseID,
 		Tombstone:      kv.Tombstone,
+	}
+}
+
+// -> stream/watchID:
+// 用来给客户端发送 WatchResponse。
+//
+// -> key/end/prevKV:
+// 这个 watcher 的订阅条件。
+//
+// -> events/lastSentRevision:
+// 这次准备发送的事件，以及“已经发送到哪个 revision”。
+func (s *Server) sendWatchEvents(stream grpc.ServerStreamingServer[etcdlitepb.WatchResponse], watchID int64, key []byte, end []byte, prevKV bool, events []mvcc.Event, lastSentRevision *int64) error {
+	matched := make([]mvcc.Event, 0)
+	for _, event := range events {
+		// 跳过已发送的 revision
+		if event.Revision.Main <= *lastSentRevision {
+			continue
+		}
+		// 虽然 hub 里已经过滤过 live event，但 history 拿到的是 store 里的历史事件，所以这里还要过滤一次兜底。
+		if !mvcc.KeyInRange(event.KV.Key, key, end) {
+			continue
+		}
+		out := mvcc.CloneEvent(event)
+		// 根据 prevKV 决定是否返回旧值
+		if !prevKV {
+			out.PrevKV = nil
+		}
+		matched = append(matched, out)
+	}
+	if len(matched) == 0 {
+		return nil
+	}
+	*lastSentRevision = matched[len(matched)-1].Revision.Main
+
+	// grpc 发送
+	return stream.Send(&etcdlitepb.WatchResponse{
+		Header:  s.header(*lastSentRevision, 0, ""),
+		WatchId: watchID,
+		Events:  eventsToProto(matched),
+	})
+}
+
+func eventsToProto(events []mvcc.Event) []*etcdlitepb.Event {
+	out := make([]*etcdlitepb.Event, 0, len(events))
+	for _, event := range events {
+		out = append(out, eventToProto(event))
+	}
+	return out
+}
+
+func eventToProto(event mvcc.Event) *etcdlitepb.Event {
+	return &etcdlitepb.Event{
+		Type:     eventTypeToProto(event.Type),
+		Revision: &etcdlitepb.Revision{Main: event.Revision.Main, Sub: event.Revision.Sub},
+		Kv:       keyValueToProto(event.KV),
+		PrevKv:   keyValuePtrToProto(event.PrevKV),
+	}
+}
+
+func eventTypeToProto(eventType mvcc.EventType) etcdlitepb.EventType {
+	switch eventType {
+	case mvcc.EventPut:
+		return etcdlitepb.EventType_EVENT_TYPE_PUT
+	case mvcc.EventDelete:
+		return etcdlitepb.EventType_EVENT_TYPE_DELETE
+	default:
+		return etcdlitepb.EventType_EVENT_TYPE_UNSPECIFIED
 	}
 }
 

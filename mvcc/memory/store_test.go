@@ -3,12 +3,15 @@ package memory
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/HasonoCell/Etcd-Lite/mvcc"
 )
 
 func TestPutMaintainsRevisionMetadataAndHistory(t *testing.T) {
 	store := New()
+	grantLease(t, store, 10, 60)
+	grantLease(t, store, 11, 60)
 
 	first, err := store.Put(mvcc.PutRequest{
 		Key:     []byte("/foo"),
@@ -168,6 +171,7 @@ func TestApplyCommandAndFutureRevisionError(t *testing.T) {
 
 func TestApplyTxnComparesAllTargetsAndSelectsBranch(t *testing.T) {
 	store := New()
+	grantLease(t, store, 11, 60)
 	put(t, store, "/txn/key", "v1")
 	if _, err := store.Put(mvcc.PutRequest{Key: []byte("/txn/key"), Value: []byte("v2"), LeaseID: 11}); err != nil {
 		t.Fatalf("Put v2: %v", err)
@@ -301,10 +305,69 @@ func TestApplyTxnReadOnlyDoesNotAdvanceRevision(t *testing.T) {
 	}
 }
 
+func TestLeaseGrantKeepAliveAndRevokeDeletesAttachedKeys(t *testing.T) {
+	store := New()
+	grantLease(t, store, 100, 5)
+
+	if _, err := store.Put(mvcc.PutRequest{Key: []byte("/lease/a"), Value: []byte("a"), LeaseID: 100}); err != nil {
+		t.Fatalf("Put lease key: %v", err)
+	}
+	leases, err := store.Leases()
+	if err != nil {
+		t.Fatalf("Leases: %v", err)
+	}
+	if len(leases) != 1 || leases[0].LeaseID != 100 || len(leases[0].Keys) != 1 || string(leases[0].Keys[0]) != "/lease/a" {
+		t.Fatalf("leases after attach = %+v", leases)
+	}
+
+	keepAlive, err := store.Apply(mvcc.Command{
+		Kind: mvcc.CommandLeaseKeepAlive,
+		LeaseKeepAlive: &mvcc.LeaseKeepAliveCommand{
+			LeaseID:     100,
+			NowUnixNano: int64(10 * time.Second),
+		},
+	})
+	if err != nil {
+		t.Fatalf("LeaseKeepAlive: %v", err)
+	}
+	if keepAlive.LeaseKeepAlive == nil || keepAlive.LeaseKeepAlive.ExpireAtUnixNano <= int64(10*time.Second) {
+		t.Fatalf("keepalive result = %+v", keepAlive.LeaseKeepAlive)
+	}
+
+	revoke, err := store.Apply(mvcc.Command{
+		Kind:        mvcc.CommandLeaseRevoke,
+		LeaseRevoke: &mvcc.LeaseRevokeCommand{LeaseID: 100},
+	})
+	if err != nil {
+		t.Fatalf("LeaseRevoke: %v", err)
+	}
+	if revoke.LeaseRevoke == nil || revoke.LeaseRevoke.Deleted != 1 || len(revoke.Events) != 1 {
+		t.Fatalf("revoke result = %+v", revoke)
+	}
+	current := mustRange(t, store, mvcc.RangeRequest{Key: []byte("/lease/a")})
+	if current.Count != 0 {
+		t.Fatalf("current after revoke = %+v", current)
+	}
+}
+
 func put(t *testing.T, store *Store, key string, value string) {
 	t.Helper()
 	if _, err := store.Put(mvcc.PutRequest{Key: []byte(key), Value: []byte(value)}); err != nil {
 		t.Fatalf("Put(%q): %v", key, err)
+	}
+}
+
+func grantLease(t *testing.T, store *Store, leaseID int64, ttl int64) {
+	t.Helper()
+	if _, err := store.Apply(mvcc.Command{
+		Kind: mvcc.CommandLeaseGrant,
+		LeaseGrant: &mvcc.LeaseGrantCommand{
+			LeaseID:     leaseID,
+			TTL:         ttl,
+			NowUnixNano: int64(ttl),
+		},
+	}); err != nil {
+		t.Fatalf("LeaseGrant(%d): %v", leaseID, err)
 	}
 }
 

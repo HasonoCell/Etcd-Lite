@@ -3,6 +3,7 @@ package bbolt
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/HasonoCell/Etcd-Lite/mvcc"
 )
@@ -105,6 +106,7 @@ func TestStoreTxnPersistsCompareBranchAndHistory(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "backend.db")
 	store := openStore(t, path)
 
+	grantLease(t, store, 9, 60)
 	if _, err := store.Put(mvcc.PutRequest{Key: []byte("/txn/key"), Value: []byte("v1"), LeaseID: 9}); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
@@ -189,6 +191,60 @@ func TestStoreTxnReadOnlyDoesNotAdvanceRevision(t *testing.T) {
 	}
 }
 
+func TestStoreLeasePersistsAndRevokeDeletesAttachedKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "backend.db")
+	store := openStore(t, path)
+
+	grantLease(t, store, 200, 5)
+	if _, err := store.Put(mvcc.PutRequest{Key: []byte("/lease/a"), Value: []byte("a"), LeaseID: 200}); err != nil {
+		t.Fatalf("Put lease key: %v", err)
+	}
+	keepAlive, err := store.Apply(mvcc.Command{
+		Kind: mvcc.CommandLeaseKeepAlive,
+		LeaseKeepAlive: &mvcc.LeaseKeepAliveCommand{
+			LeaseID:     200,
+			NowUnixNano: int64(10 * time.Second),
+		},
+	})
+	if err != nil {
+		t.Fatalf("LeaseKeepAlive: %v", err)
+	}
+	if keepAlive.LeaseKeepAlive == nil || keepAlive.LeaseKeepAlive.ExpireAtUnixNano <= int64(10*time.Second) {
+		t.Fatalf("keepalive result = %+v", keepAlive.LeaseKeepAlive)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reopened := openStore(t, path)
+	defer reopened.Close()
+	leases, err := reopened.Leases()
+	if err != nil {
+		t.Fatalf("Leases: %v", err)
+	}
+	if len(leases) != 1 || leases[0].LeaseID != 200 || len(leases[0].Keys) != 1 || string(leases[0].Keys[0]) != "/lease/a" {
+		t.Fatalf("leases after reopen = %+v", leases)
+	}
+
+	revoke, err := reopened.Apply(mvcc.Command{
+		Kind:        mvcc.CommandLeaseRevoke,
+		LeaseRevoke: &mvcc.LeaseRevokeCommand{LeaseID: 200},
+	})
+	if err != nil {
+		t.Fatalf("LeaseRevoke: %v", err)
+	}
+	if revoke.LeaseRevoke == nil || revoke.LeaseRevoke.Deleted != 1 || len(revoke.Events) != 1 {
+		t.Fatalf("revoke result = %+v", revoke)
+	}
+	current, err := reopened.Range(mvcc.RangeRequest{Key: []byte("/lease/a")})
+	if err != nil {
+		t.Fatalf("Range after revoke: %v", err)
+	}
+	if current.Count != 0 {
+		t.Fatalf("current after revoke = %+v", current)
+	}
+}
+
 func openStore(t *testing.T, path string) *Store {
 	t.Helper()
 	store, err := Open(path)
@@ -202,5 +258,19 @@ func put(t *testing.T, store *Store, key string, value string) {
 	t.Helper()
 	if _, err := store.Put(mvcc.PutRequest{Key: []byte(key), Value: []byte(value)}); err != nil {
 		t.Fatalf("Put(%q): %v", key, err)
+	}
+}
+
+func grantLease(t *testing.T, store *Store, leaseID int64, ttl int64) {
+	t.Helper()
+	if _, err := store.Apply(mvcc.Command{
+		Kind: mvcc.CommandLeaseGrant,
+		LeaseGrant: &mvcc.LeaseGrantCommand{
+			LeaseID:     leaseID,
+			TTL:         ttl,
+			NowUnixNano: int64(ttl),
+		},
+	}); err != nil {
+		t.Fatalf("LeaseGrant(%d): %v", leaseID, err)
 	}
 }

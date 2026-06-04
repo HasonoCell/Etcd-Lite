@@ -2,8 +2,10 @@ package memory
 
 import (
 	"bytes"
+	"slices"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/HasonoCell/Etcd-Lite/mvcc"
 )
@@ -14,13 +16,17 @@ type Store struct {
 	revision   int64
 	current    map[string]mvcc.KeyValue // key -> KeyValue Struct
 	history    []mvcc.Event
+	leases     map[int64]mvcc.LeaseRecord // leaseID -> LeaseRecord
+	leaseKeys  map[string]int64           // key -> leaseID
 	compactRev int64
 }
 
 // New 创建一个 in-memory Store，初始 revision 为 0。
 func New() *Store {
 	return &Store{
-		current: make(map[string]mvcc.KeyValue),
+		current:   make(map[string]mvcc.KeyValue),
+		leases:    make(map[int64]mvcc.LeaseRecord),
+		leaseKeys: make(map[string]int64),
 	}
 }
 
@@ -74,6 +80,11 @@ func (s *Store) Put(req mvcc.PutRequest) (mvcc.PutResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// put 要做 lease 校验，如果不带 lease 则 leaseID 必须传 0
+	if err := s.validateLeaseLocked(req.LeaseID); err != nil {
+		return mvcc.PutResponse{}, err
+	}
+
 	nextRevision := s.revision + 1
 	key := string(req.Key)
 	prev, existed := s.current[key]
@@ -108,6 +119,12 @@ func (s *Store) Put(req mvcc.PutRequest) (mvcc.PutResponse, error) {
 
 	s.revision = nextRevision
 	s.current[key] = mvcc.CloneKeyValue(kv)
+
+	// 先解除旧 lease，再绑定新 lease
+	if existed {
+		s.detachLeaseKeyLocked(prev.LeaseID, prev.Key)
+	}
+	s.attachLeaseKeyLocked(req.LeaseID, req.Key)
 	s.history = append(s.history, mvcc.CloneEvent(event))
 
 	resp := mvcc.PutResponse{
@@ -142,6 +159,9 @@ func (s *Store) DeleteRange(req mvcc.DeleteRangeRequest) (mvcc.DeleteRangeRespon
 	for i, key := range keys {
 		prev := s.current[key]
 		delete(s.current, key)
+
+		// 删除 key 也要删除对应的 lease
+		s.detachLeaseKeyLocked(prev.LeaseID, prev.Key)
 
 		tombstone := mvcc.KeyValue{
 			Key:            append([]byte(nil), prev.Key...),
@@ -208,6 +228,24 @@ func (s *Store) History(req mvcc.HistoryRequest) (mvcc.HistoryResponse, error) {
 	return mvcc.HistoryResponse{Revision: s.revision, Events: events}, nil
 }
 
+// Leases 返回当前全部 lease metadata，供 leader expiration loop 扫描。
+func (s *Store) Leases() ([]mvcc.LeaseRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ids := make([]int64, 0, len(s.leases))
+	for id := range s.leases {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+
+	records := make([]mvcc.LeaseRecord, 0, len(ids))
+	for _, id := range ids {
+		records = append(records, mvcc.CloneLeaseRecord(s.leases[id]))
+	}
+	return records, nil
+}
+
 // Apply 将 raft 已经 committed 的内部 Command 应用到 MVCC Store，并返回结构化 ApplyResult。
 // Txn 会在同一个 working view 中执行 compare 和 branch ops，所有写事件共享同一个 main revision。
 func (s *Store) Apply(command mvcc.Command) (mvcc.ApplyResult, error) {
@@ -249,6 +287,36 @@ func (s *Store) Apply(command mvcc.Command) (mvcc.ApplyResult, error) {
 		}, nil
 	case mvcc.CommandTxn:
 		return s.applyTxn(*command.Txn)
+	case mvcc.CommandLeaseGrant:
+		resp, err := s.leaseGrant(mvcc.LeaseGrantRequest{
+			LeaseID:     command.LeaseGrant.LeaseID,
+			TTL:         command.LeaseGrant.TTL,
+			NowUnixNano: command.LeaseGrant.NowUnixNano,
+		})
+		if err != nil {
+			return mvcc.ApplyResult{Succeeded: false, Err: err}, err
+		}
+		return mvcc.ApplyResult{Revision: s.CurrentRevision(), Succeeded: true, LeaseGrant: &resp}, nil
+	case mvcc.CommandLeaseKeepAlive:
+		resp, err := s.leaseKeepAlive(mvcc.LeaseKeepAliveRequest{
+			LeaseID:     command.LeaseKeepAlive.LeaseID,
+			NowUnixNano: command.LeaseKeepAlive.NowUnixNano,
+		})
+		if err != nil {
+			return mvcc.ApplyResult{Succeeded: false, Err: err}, err
+		}
+		return mvcc.ApplyResult{Revision: s.CurrentRevision(), Succeeded: true, LeaseKeepAlive: &resp}, nil
+	case mvcc.CommandLeaseRevoke:
+		resp, err := s.leaseRevoke(mvcc.LeaseRevokeRequest{LeaseID: command.LeaseRevoke.LeaseID})
+		if err != nil {
+			return mvcc.ApplyResult{Succeeded: false, Err: err}, err
+		}
+		return mvcc.ApplyResult{
+			Revision:    resp.Revision,
+			Succeeded:   true,
+			Events:      mvcc.CloneEvents(resp.Events),
+			LeaseRevoke: &resp,
+		}, nil
 	default:
 		err := mvcc.ErrInvalidCommand
 		return mvcc.ApplyResult{Succeeded: false, Err: err}, err
@@ -259,13 +327,17 @@ func (s *Store) applyTxn(txn mvcc.TxnCommand) (mvcc.ApplyResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	execution, err := mvcc.ExecuteTxn(s.current, s.revision, txn)
+	execution, err := mvcc.ExecuteTxnWithLeaseValidator(s.current, s.revision, txn, func(leaseID int64) bool {
+		_, ok := s.leases[leaseID]
+		return ok
+	})
 	if err != nil {
 		return mvcc.ApplyResult{Succeeded: false, Err: err}, err
 	}
 	if len(execution.Events) > 0 {
 		s.revision = execution.Revision
 		s.current = execution.Current
+		s.applyLeaseEventsLocked(execution.Events)
 		s.history = append(s.history, mvcc.CloneEvents(execution.Events)...)
 	}
 
@@ -275,6 +347,159 @@ func (s *Store) applyTxn(txn mvcc.TxnCommand) (mvcc.ApplyResult, error) {
 		Responses: execution.Responses,
 		Events:    mvcc.CloneEvents(execution.Events),
 	}, nil
+}
+
+// 创建 lease
+func (s *Store) leaseGrant(req mvcc.LeaseGrantRequest) (mvcc.LeaseGrantResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.leases[req.LeaseID]; ok {
+		return mvcc.LeaseGrantResponse{}, mvcc.ErrLeaseAlreadyExists
+	}
+	// 计算过期时间
+	expireAt := req.NowUnixNano + req.TTL*int64(time.Second)
+	record := mvcc.LeaseRecord{
+		LeaseID:          req.LeaseID,
+		TTL:              req.TTL,
+		ExpireAtUnixNano: expireAt,
+	}
+	s.leases[req.LeaseID] = record
+	return mvcc.LeaseGrantResponse{LeaseID: req.LeaseID, TTL: req.TTL, ExpireAtUnixNano: expireAt}, nil
+}
+
+// 续租 lease
+func (s *Store) leaseKeepAlive(req mvcc.LeaseKeepAliveRequest) (mvcc.LeaseKeepAliveResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	record, ok := s.leases[req.LeaseID]
+	if !ok {
+		return mvcc.LeaseKeepAliveResponse{}, mvcc.ErrLeaseNotFound
+	}
+	// 重新计算过期时间
+	record.ExpireAtUnixNano = req.NowUnixNano + record.TTL*int64(time.Second)
+	s.leases[req.LeaseID] = mvcc.CloneLeaseRecord(record)
+	return mvcc.LeaseKeepAliveResponse{
+		LeaseID:          record.LeaseID,
+		TTL:              record.TTL,
+		ExpireAtUnixNano: record.ExpireAtUnixNano,
+	}, nil
+}
+
+// 删除 lease 并删除绑定在上面的 keys
+// 因为涉及到 kv 状态的修改，所以会产生 event 供 watcher 监听
+func (s *Store) leaseRevoke(req mvcc.LeaseRevokeRequest) (mvcc.LeaseRevokeResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	record, ok := s.leases[req.LeaseID]
+	if !ok {
+		return mvcc.LeaseRevokeResponse{}, mvcc.ErrLeaseNotFound
+	}
+
+	keys := mvcc.LeaseRecordKeys(record)
+	events := make([]mvcc.Event, 0, len(keys))
+	nextRevision := s.revision + 1
+
+	// 逐个删除 current view 中的 kv
+	for _, keyBytes := range keys {
+		key := string(keyBytes)
+		prev, ok := s.current[key]
+		if !ok || prev.LeaseID != req.LeaseID {
+			delete(s.leaseKeys, key)
+			continue
+		}
+		// 先删 kv
+		delete(s.current, key)
+		delete(s.leaseKeys, key)
+
+		tombstone := mvcc.KeyValue{
+			Key:            append([]byte(nil), prev.Key...),
+			CreateRevision: prev.CreateRevision,
+			ModRevision:    nextRevision,
+			Version:        prev.Version + 1,
+			LeaseID:        prev.LeaseID,
+			Tombstone:      true,
+		}
+		prevCopy := mvcc.CloneKeyValue(prev)
+
+		// 生成 delete event
+		event := mvcc.Event{
+			Type:     mvcc.EventDelete,
+			Revision: mvcc.Revision{Main: nextRevision, Sub: int64(len(events))},
+			KV:       tombstone,
+			PrevKV:   &prevCopy,
+		}
+		events = append(events, mvcc.CloneEvent(event))
+	}
+	// 最后删 lease
+	delete(s.leases, req.LeaseID)
+
+	if len(events) > 0 {
+		s.revision = nextRevision
+		// 将 delete events 加入 history
+		s.history = append(s.history, mvcc.CloneEvents(events)...)
+	}
+	return mvcc.LeaseRevokeResponse{
+		Revision: s.revision,
+		Deleted:  int64(len(events)),
+		Events:   mvcc.CloneEvents(events),
+	}, nil
+}
+
+func (s *Store) validateLeaseLocked(leaseID int64) error {
+	if leaseID == 0 {
+		return nil
+	}
+	if leaseID < 0 {
+		return mvcc.ErrInvalidLease
+	}
+	if _, ok := s.leases[leaseID]; !ok {
+		return mvcc.ErrLeaseNotFound
+	}
+	return nil
+}
+
+func (s *Store) applyLeaseEventsLocked(events []mvcc.Event) {
+	for _, event := range events {
+		switch event.Type {
+		case mvcc.EventPut:
+			if event.PrevKV != nil {
+				s.detachLeaseKeyLocked(event.PrevKV.LeaseID, event.PrevKV.Key)
+			}
+			s.attachLeaseKeyLocked(event.KV.LeaseID, event.KV.Key)
+		case mvcc.EventDelete:
+			if event.PrevKV != nil {
+				s.detachLeaseKeyLocked(event.PrevKV.LeaseID, event.PrevKV.Key)
+			}
+		}
+	}
+}
+
+func (s *Store) attachLeaseKeyLocked(leaseID int64, key []byte) {
+	if leaseID == 0 {
+		return
+	}
+	record, ok := s.leases[leaseID]
+	if !ok {
+		return
+	}
+	record.Keys = mvcc.AddLeaseKey(record.Keys, key)
+	s.leases[leaseID] = mvcc.CloneLeaseRecord(record)
+	s.leaseKeys[string(key)] = leaseID
+}
+
+func (s *Store) detachLeaseKeyLocked(leaseID int64, key []byte) {
+	if leaseID == 0 {
+		return
+	}
+	record, ok := s.leases[leaseID]
+	if ok {
+		record.Keys = mvcc.RemoveLeaseKey(record.Keys, key)
+		s.leases[leaseID] = mvcc.CloneLeaseRecord(record)
+	}
+	delete(s.leaseKeys, string(key))
 }
 
 // normalizeReadRevisionLocked 将用户传入的 read revision 规范化为可读取的 MVCC revision。

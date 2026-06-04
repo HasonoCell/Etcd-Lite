@@ -13,18 +13,24 @@ type RequestID struct {
 type CommandKind string
 
 const (
-	CommandPut         CommandKind = "put"
-	CommandDeleteRange CommandKind = "delete_range"
-	CommandTxn         CommandKind = "txn"
+	CommandPut            CommandKind = "put"
+	CommandDeleteRange    CommandKind = "delete_range"
+	CommandTxn            CommandKind = "txn"
+	CommandLeaseGrant     CommandKind = "lease_grant"
+	CommandLeaseKeepAlive CommandKind = "lease_keep_alive"
+	CommandLeaseRevoke    CommandKind = "lease_revoke"
 )
 
 // Command 是写入 Raft log 的内部 command，不直接复用外部 RPC request。
 type Command struct {
-	ID          RequestID           `json:"id"`
-	Kind        CommandKind         `json:"kind"`
-	Put         *PutCommand         `json:"put,omitempty"`
-	DeleteRange *DeleteRangeCommand `json:"delete_range,omitempty"`
-	Txn         *TxnCommand         `json:"txn,omitempty"`
+	ID             RequestID              `json:"id"`
+	Kind           CommandKind            `json:"kind"`
+	Put            *PutCommand            `json:"put,omitempty"`
+	DeleteRange    *DeleteRangeCommand    `json:"delete_range,omitempty"`
+	Txn            *TxnCommand            `json:"txn,omitempty"`
+	LeaseGrant     *LeaseGrantCommand     `json:"lease_grant,omitempty"`
+	LeaseKeepAlive *LeaseKeepAliveCommand `json:"lease_keep_alive,omitempty"`
+	LeaseRevoke    *LeaseRevokeCommand    `json:"lease_revoke,omitempty"`
 }
 
 type PutCommand struct {
@@ -38,6 +44,21 @@ type DeleteRangeCommand struct {
 	Key    []byte `json:"key"`
 	End    []byte `json:"end,omitempty"`
 	PrevKV bool   `json:"prev_kv,omitempty"`
+}
+
+type LeaseGrantCommand struct {
+	LeaseID     int64 `json:"lease_id"`
+	TTL         int64 `json:"ttl"`
+	NowUnixNano int64 `json:"now_unix_nano"`
+}
+
+type LeaseKeepAliveCommand struct {
+	LeaseID     int64 `json:"lease_id"`
+	NowUnixNano int64 `json:"now_unix_nano"`
+}
+
+type LeaseRevokeCommand struct {
+	LeaseID int64 `json:"lease_id"`
 }
 
 // TxnCommand 表示 compare 成功时执行 success ops，否则执行 failure ops。
@@ -102,11 +123,14 @@ type OpResponse struct {
 }
 
 type ApplyResult struct {
-	Revision  int64
-	Succeeded bool
-	Responses []OpResponse
-	Events    []Event
-	Err       error
+	Revision       int64
+	Succeeded      bool
+	Responses      []OpResponse
+	Events         []Event
+	LeaseGrant     *LeaseGrantResponse
+	LeaseKeepAlive *LeaseKeepAliveResponse
+	LeaseRevoke    *LeaseRevokeResponse
+	Err            error
 }
 
 func EncodeCommand(command Command) ([]byte, error) {
@@ -144,6 +168,21 @@ func (c Command) Validate() error {
 			return ErrInvalidCommand
 		}
 		return ValidateTxnCommand(*c.Txn)
+	case CommandLeaseGrant:
+		if c.LeaseGrant == nil || c.LeaseGrant.LeaseID <= 0 || c.LeaseGrant.TTL <= 0 || c.LeaseGrant.NowUnixNano <= 0 {
+			return ErrInvalidLease
+		}
+		return nil
+	case CommandLeaseKeepAlive:
+		if c.LeaseKeepAlive == nil || c.LeaseKeepAlive.LeaseID <= 0 || c.LeaseKeepAlive.NowUnixNano <= 0 {
+			return ErrInvalidLease
+		}
+		return nil
+	case CommandLeaseRevoke:
+		if c.LeaseRevoke == nil || c.LeaseRevoke.LeaseID <= 0 {
+			return ErrInvalidLease
+		}
+		return nil
 	default:
 		return ErrInvalidCommand
 	}

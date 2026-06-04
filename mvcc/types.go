@@ -12,6 +12,9 @@ var (
 	ErrInvalidRevision    = errors.New("mvcc: invalid revision")
 	ErrInvalidCommand     = errors.New("mvcc: invalid command")
 	ErrUnsupportedCommand = errors.New("mvcc: unsupported command")
+	ErrLeaseNotFound      = errors.New("mvcc: lease not found")
+	ErrLeaseAlreadyExists = errors.New("mvcc: lease already exists")
+	ErrInvalidLease       = errors.New("mvcc: invalid lease")
 )
 
 // Revision 表示 MVCC 中的全局 revision 和同一 transaction 内的 sub revision。
@@ -109,12 +112,53 @@ type HistoryResponse struct {
 	Events   []Event
 }
 
+type LeaseRecord struct {
+	LeaseID          int64    `json:"lease_id"`
+	TTL              int64    `json:"ttl"`                 // lease 租约时长
+	ExpireAtUnixNano int64    `json:"expire_at_unix_nano"` // 具体过期时间点
+	Keys             [][]byte `json:"keys,omitempty"`      // 该 lease 绑定了哪些 key
+}
+
+type LeaseGrantRequest struct {
+	LeaseID     int64
+	TTL         int64
+	NowUnixNano int64
+}
+
+type LeaseGrantResponse struct {
+	LeaseID          int64
+	TTL              int64
+	ExpireAtUnixNano int64
+}
+
+type LeaseKeepAliveRequest struct {
+	LeaseID     int64
+	NowUnixNano int64
+}
+
+type LeaseKeepAliveResponse struct {
+	LeaseID          int64
+	TTL              int64
+	ExpireAtUnixNano int64
+}
+
+type LeaseRevokeRequest struct {
+	LeaseID int64
+}
+
+type LeaseRevokeResponse struct {
+	Revision int64
+	Deleted  int64
+	Events   []Event
+}
+
 type Store interface {
 	CurrentRevision() int64
 	Range(RangeRequest) (RangeResponse, error)
 	Put(PutRequest) (PutResponse, error)
 	DeleteRange(DeleteRangeRequest) (DeleteRangeResponse, error)
 	History(HistoryRequest) (HistoryResponse, error)
+	Leases() ([]LeaseRecord, error)
 	Apply(Command) (ApplyResult, error)
 }
 
@@ -186,6 +230,27 @@ func CloneEvents(events []Event) []Event {
 	out := make([]Event, len(events))
 	for i, event := range events {
 		out[i] = CloneEvent(event)
+	}
+	return out
+}
+
+func CloneLeaseRecord(record LeaseRecord) LeaseRecord {
+	out := LeaseRecord{
+		LeaseID:          record.LeaseID,
+		TTL:              record.TTL,
+		ExpireAtUnixNano: record.ExpireAtUnixNano,
+		Keys:             make([][]byte, len(record.Keys)),
+	}
+	for i, key := range record.Keys {
+		out.Keys[i] = append([]byte(nil), key...)
+	}
+	return out
+}
+
+func CloneLeaseRecords(records []LeaseRecord) []LeaseRecord {
+	out := make([]LeaseRecord, len(records))
+	for i, record := range records {
+		out[i] = CloneLeaseRecord(record)
 	}
 	return out
 }

@@ -22,6 +22,7 @@ var (
 	metaBucket    = []byte("meta")
 	currentBucket = []byte("current_kv")
 	historyBucket = []byte("history")
+	leaseBucket   = []byte("lease")
 	revisionKey   = []byte("current_main_rev")
 )
 
@@ -104,10 +105,14 @@ func (s *Store) Put(req mvcc.PutRequest) (mvcc.PutResponse, error) {
 	err := s.db.Update(func(tx *bolt.Tx) error {
 		current := tx.Bucket(currentBucket)
 		history := tx.Bucket(historyBucket)
+		leases := tx.Bucket(leaseBucket)
 
 		nextRevision := currentRevision(tx) + 1
 		prev, existed, err := getCurrent(current, req.Key)
 		if err != nil {
+			return err
+		}
+		if err := validateLease(leases, req.LeaseID); err != nil {
 			return err
 		}
 
@@ -138,6 +143,14 @@ func (s *Store) Put(req mvcc.PutRequest) (mvcc.PutResponse, error) {
 		if err := putJSON(current, req.Key, kv); err != nil {
 			return err
 		}
+		if existed {
+			if err := detachLeaseKey(leases, prev.LeaseID, prev.Key); err != nil {
+				return err
+			}
+		}
+		if err := attachLeaseKey(leases, req.LeaseID, req.Key); err != nil {
+			return err
+		}
 		if err := putJSON(history, revisionKeyBytes(event.Revision), event); err != nil {
 			return err
 		}
@@ -166,6 +179,7 @@ func (s *Store) DeleteRange(req mvcc.DeleteRangeRequest) (mvcc.DeleteRangeRespon
 	err := s.db.Update(func(tx *bolt.Tx) error {
 		current := tx.Bucket(currentBucket)
 		history := tx.Bucket(historyBucket)
+		leases := tx.Bucket(leaseBucket)
 		kvs, err := currentRange(tx, req.Key, req.End)
 		if err != nil {
 			return err
@@ -195,6 +209,9 @@ func (s *Store) DeleteRange(req mvcc.DeleteRangeRequest) (mvcc.DeleteRangeRespon
 				PrevKV:   &prevCopy,
 			}
 			if err := current.Delete(prev.Key); err != nil {
+				return err
+			}
+			if err := detachLeaseKey(leases, prev.LeaseID, prev.Key); err != nil {
 				return err
 			}
 			if err := putJSON(history, revisionKeyBytes(event.Revision), event); err != nil {
@@ -261,6 +278,29 @@ func (s *Store) History(req mvcc.HistoryRequest) (mvcc.HistoryResponse, error) {
 	return resp, err
 }
 
+// Leases 返回当前全部 lease metadata，供 leader expiration loop 扫描。
+func (s *Store) Leases() ([]mvcc.LeaseRecord, error) {
+	var records []mvcc.LeaseRecord
+	err := s.db.View(func(tx *bolt.Tx) error {
+		cursor := tx.Bucket(leaseBucket).Cursor()
+		for _, value := cursor.First(); value != nil; _, value = cursor.Next() {
+			var record mvcc.LeaseRecord
+			if err := decodeJSON(value, &record); err != nil {
+				return err
+			}
+			records = append(records, mvcc.CloneLeaseRecord(record))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].LeaseID < records[j].LeaseID
+	})
+	return records, nil
+}
+
 // Apply 将已经 committed 的内部 Command 应用到 bbolt-backed MVCC Store。
 // Txn 会在一个 db.Update 中完成 compare、branch ops、history 写入和 revision 推进。
 func (s *Store) Apply(command mvcc.Command) (mvcc.ApplyResult, error) {
@@ -301,6 +341,36 @@ func (s *Store) Apply(command mvcc.Command) (mvcc.ApplyResult, error) {
 		}, nil
 	case mvcc.CommandTxn:
 		return s.applyTxn(*command.Txn)
+	case mvcc.CommandLeaseGrant:
+		resp, err := s.leaseGrant(mvcc.LeaseGrantRequest{
+			LeaseID:     command.LeaseGrant.LeaseID,
+			TTL:         command.LeaseGrant.TTL,
+			NowUnixNano: command.LeaseGrant.NowUnixNano,
+		})
+		if err != nil {
+			return mvcc.ApplyResult{Succeeded: false, Err: err}, err
+		}
+		return mvcc.ApplyResult{Revision: s.CurrentRevision(), Succeeded: true, LeaseGrant: &resp}, nil
+	case mvcc.CommandLeaseKeepAlive:
+		resp, err := s.leaseKeepAlive(mvcc.LeaseKeepAliveRequest{
+			LeaseID:     command.LeaseKeepAlive.LeaseID,
+			NowUnixNano: command.LeaseKeepAlive.NowUnixNano,
+		})
+		if err != nil {
+			return mvcc.ApplyResult{Succeeded: false, Err: err}, err
+		}
+		return mvcc.ApplyResult{Revision: s.CurrentRevision(), Succeeded: true, LeaseKeepAlive: &resp}, nil
+	case mvcc.CommandLeaseRevoke:
+		resp, err := s.leaseRevoke(mvcc.LeaseRevokeRequest{LeaseID: command.LeaseRevoke.LeaseID})
+		if err != nil {
+			return mvcc.ApplyResult{Succeeded: false, Err: err}, err
+		}
+		return mvcc.ApplyResult{
+			Revision:    resp.Revision,
+			Succeeded:   true,
+			Events:      mvcc.CloneEvents(resp.Events),
+			LeaseRevoke: &resp,
+		}, nil
 	default:
 		err := mvcc.ErrInvalidCommand
 		return mvcc.ApplyResult{Succeeded: false, Err: err}, err
@@ -315,20 +385,37 @@ func (s *Store) applyTxn(txn mvcc.TxnCommand) (mvcc.ApplyResult, error) {
 			return err
 		}
 
-		execution, err := mvcc.ExecuteTxn(currentView, currentRevision(tx), txn)
+		leases := tx.Bucket(leaseBucket)
+		execution, err := mvcc.ExecuteTxnWithLeaseValidator(currentView, currentRevision(tx), txn, func(leaseID int64) bool {
+			return leases.Get(leaseKeyBytes(leaseID)) != nil
+		})
 		if err != nil {
 			return err
 		}
 		if len(execution.Events) > 0 {
 			current := tx.Bucket(currentBucket)
 			history := tx.Bucket(historyBucket)
+			leases := tx.Bucket(leaseBucket)
 			for _, event := range execution.Events {
 				switch event.Type {
 				case mvcc.EventPut:
+					if event.PrevKV != nil {
+						if err := detachLeaseKey(leases, event.PrevKV.LeaseID, event.PrevKV.Key); err != nil {
+							return err
+						}
+					}
+					if err := attachLeaseKey(leases, event.KV.LeaseID, event.KV.Key); err != nil {
+						return err
+					}
 					if err := putJSON(current, event.KV.Key, event.KV); err != nil {
 						return err
 					}
 				case mvcc.EventDelete:
+					if event.PrevKV != nil {
+						if err := detachLeaseKey(leases, event.PrevKV.LeaseID, event.PrevKV.Key); err != nil {
+							return err
+						}
+					}
 					if err := current.Delete(event.KV.Key); err != nil {
 						return err
 					}
@@ -358,6 +445,117 @@ func (s *Store) applyTxn(txn mvcc.TxnCommand) (mvcc.ApplyResult, error) {
 	return result, nil
 }
 
+func (s *Store) leaseGrant(req mvcc.LeaseGrantRequest) (mvcc.LeaseGrantResponse, error) {
+	var resp mvcc.LeaseGrantResponse
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		leases := tx.Bucket(leaseBucket)
+		key := leaseKeyBytes(req.LeaseID)
+		if leases.Get(key) != nil {
+			return mvcc.ErrLeaseAlreadyExists
+		}
+		expireAt := req.NowUnixNano + req.TTL*int64(time.Second)
+		record := mvcc.LeaseRecord{
+			LeaseID:          req.LeaseID,
+			TTL:              req.TTL,
+			ExpireAtUnixNano: expireAt,
+		}
+		if err := putJSON(leases, key, record); err != nil {
+			return err
+		}
+		resp = mvcc.LeaseGrantResponse{LeaseID: req.LeaseID, TTL: req.TTL, ExpireAtUnixNano: expireAt}
+		return nil
+	})
+	return resp, err
+}
+
+func (s *Store) leaseKeepAlive(req mvcc.LeaseKeepAliveRequest) (mvcc.LeaseKeepAliveResponse, error) {
+	var resp mvcc.LeaseKeepAliveResponse
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		leases := tx.Bucket(leaseBucket)
+		record, err := getLease(leases, req.LeaseID)
+		if err != nil {
+			return err
+		}
+		record.ExpireAtUnixNano = req.NowUnixNano + record.TTL*int64(time.Second)
+		if err := putJSON(leases, leaseKeyBytes(req.LeaseID), record); err != nil {
+			return err
+		}
+		resp = mvcc.LeaseKeepAliveResponse{
+			LeaseID:          record.LeaseID,
+			TTL:              record.TTL,
+			ExpireAtUnixNano: record.ExpireAtUnixNano,
+		}
+		return nil
+	})
+	return resp, err
+}
+
+func (s *Store) leaseRevoke(req mvcc.LeaseRevokeRequest) (mvcc.LeaseRevokeResponse, error) {
+	var resp mvcc.LeaseRevokeResponse
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		current := tx.Bucket(currentBucket)
+		history := tx.Bucket(historyBucket)
+		leases := tx.Bucket(leaseBucket)
+		record, err := getLease(leases, req.LeaseID)
+		if err != nil {
+			return err
+		}
+
+		keys := mvcc.LeaseRecordKeys(record)
+		events := make([]mvcc.Event, 0, len(keys))
+		nextRevision := currentRevision(tx) + 1
+		for _, key := range keys {
+			prev, ok, err := getCurrent(current, key)
+			if err != nil {
+				return err
+			}
+			if !ok || prev.LeaseID != req.LeaseID {
+				continue
+			}
+
+			tombstone := mvcc.KeyValue{
+				Key:            append([]byte(nil), prev.Key...),
+				CreateRevision: prev.CreateRevision,
+				ModRevision:    nextRevision,
+				Version:        prev.Version + 1,
+				LeaseID:        prev.LeaseID,
+				Tombstone:      true,
+			}
+			prevCopy := mvcc.CloneKeyValue(prev)
+			event := mvcc.Event{
+				Type:     mvcc.EventDelete,
+				Revision: mvcc.Revision{Main: nextRevision, Sub: int64(len(events))},
+				KV:       tombstone,
+				PrevKV:   &prevCopy,
+			}
+			if err := current.Delete(prev.Key); err != nil {
+				return err
+			}
+			if err := putJSON(history, revisionKeyBytes(event.Revision), event); err != nil {
+				return err
+			}
+			events = append(events, mvcc.CloneEvent(event))
+		}
+		if err := leases.Delete(leaseKeyBytes(req.LeaseID)); err != nil {
+			return err
+		}
+		revision := currentRevision(tx)
+		if len(events) > 0 {
+			revision = nextRevision
+			if err := setCurrentRevision(tx, revision); err != nil {
+				return err
+			}
+		}
+		resp = mvcc.LeaseRevokeResponse{
+			Revision: revision,
+			Deleted:  int64(len(events)),
+			Events:   mvcc.CloneEvents(events),
+		}
+		return nil
+	})
+	return resp, err
+}
+
 // init 创建 Store 需要的逻辑 buckets，重复调用保持 idempotent。
 func (s *Store) init() error {
 	return s.db.Update(func(tx *bolt.Tx) error {
@@ -367,7 +565,10 @@ func (s *Store) init() error {
 		if _, err := tx.CreateBucketIfNotExists(currentBucket); err != nil {
 			return err
 		}
-		_, err := tx.CreateBucketIfNotExists(historyBucket)
+		if _, err := tx.CreateBucketIfNotExists(historyBucket); err != nil {
+			return err
+		}
+		_, err := tx.CreateBucketIfNotExists(leaseBucket)
 		return err
 	})
 }
@@ -414,6 +615,58 @@ func getCurrent(bucket *bolt.Bucket, key []byte) (mvcc.KeyValue, bool, error) {
 		return mvcc.KeyValue{}, false, err
 	}
 	return mvcc.CloneKeyValue(kv), true, nil
+}
+
+func validateLease(bucket *bolt.Bucket, leaseID int64) error {
+	if leaseID == 0 {
+		return nil
+	}
+	if leaseID < 0 {
+		return mvcc.ErrInvalidLease
+	}
+	if bucket.Get(leaseKeyBytes(leaseID)) == nil {
+		return mvcc.ErrLeaseNotFound
+	}
+	return nil
+}
+
+func getLease(bucket *bolt.Bucket, leaseID int64) (mvcc.LeaseRecord, error) {
+	value := bucket.Get(leaseKeyBytes(leaseID))
+	if value == nil {
+		return mvcc.LeaseRecord{}, mvcc.ErrLeaseNotFound
+	}
+	var record mvcc.LeaseRecord
+	if err := decodeJSON(value, &record); err != nil {
+		return mvcc.LeaseRecord{}, err
+	}
+	return mvcc.CloneLeaseRecord(record), nil
+}
+
+func attachLeaseKey(bucket *bolt.Bucket, leaseID int64, key []byte) error {
+	if leaseID == 0 {
+		return nil
+	}
+	record, err := getLease(bucket, leaseID)
+	if err != nil {
+		return err
+	}
+	record.Keys = mvcc.AddLeaseKey(record.Keys, key)
+	return putJSON(bucket, leaseKeyBytes(leaseID), record)
+}
+
+func detachLeaseKey(bucket *bolt.Bucket, leaseID int64, key []byte) error {
+	if leaseID == 0 {
+		return nil
+	}
+	record, err := getLease(bucket, leaseID)
+	if err != nil {
+		if err == mvcc.ErrLeaseNotFound {
+			return nil
+		}
+		return err
+	}
+	record.Keys = mvcc.RemoveLeaseKey(record.Keys, key)
+	return putJSON(bucket, leaseKeyBytes(leaseID), record)
 }
 
 // currentRange 从 current_kv bucket 读取单 key 或 [key, end) range。
@@ -500,6 +753,12 @@ func revisionKeyBytes(revision mvcc.Revision) []byte {
 	key := make([]byte, 16)
 	binary.BigEndian.PutUint64(key[0:8], uint64(revision.Main))
 	binary.BigEndian.PutUint64(key[8:16], uint64(revision.Sub))
+	return key
+}
+
+func leaseKeyBytes(leaseID int64) []byte {
+	key := make([]byte, 8)
+	binary.BigEndian.PutUint64(key, uint64(leaseID))
 	return key
 }
 

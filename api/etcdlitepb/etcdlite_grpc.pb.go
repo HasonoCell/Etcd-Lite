@@ -235,6 +235,284 @@ var KV_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	Watch_Watch_FullMethodName = "/etcdlite.v1.Watch/Watch"
+)
+
+// WatchClient is the client API for Watch service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type WatchClient interface {
+	Watch(ctx context.Context, in *WatchRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchResponse], error)
+}
+
+type watchClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewWatchClient(cc grpc.ClientConnInterface) WatchClient {
+	return &watchClient{cc}
+}
+
+func (c *watchClient) Watch(ctx context.Context, in *WatchRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &Watch_ServiceDesc.Streams[0], Watch_Watch_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[WatchRequest, WatchResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Watch_WatchClient = grpc.ServerStreamingClient[WatchResponse]
+
+// WatchServer is the server API for Watch service.
+// All implementations must embed UnimplementedWatchServer
+// for forward compatibility.
+type WatchServer interface {
+	Watch(*WatchRequest, grpc.ServerStreamingServer[WatchResponse]) error
+	mustEmbedUnimplementedWatchServer()
+}
+
+// UnimplementedWatchServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedWatchServer struct{}
+
+func (UnimplementedWatchServer) Watch(*WatchRequest, grpc.ServerStreamingServer[WatchResponse]) error {
+	return status.Error(codes.Unimplemented, "method Watch not implemented")
+}
+func (UnimplementedWatchServer) mustEmbedUnimplementedWatchServer() {}
+func (UnimplementedWatchServer) testEmbeddedByValue()               {}
+
+// UnsafeWatchServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to WatchServer will
+// result in compilation errors.
+type UnsafeWatchServer interface {
+	mustEmbedUnimplementedWatchServer()
+}
+
+func RegisterWatchServer(s grpc.ServiceRegistrar, srv WatchServer) {
+	// If the following call panics, it indicates UnimplementedWatchServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&Watch_ServiceDesc, srv)
+}
+
+func _Watch_Watch_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(WatchRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(WatchServer).Watch(m, &grpc.GenericServerStream[WatchRequest, WatchResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Watch_WatchServer = grpc.ServerStreamingServer[WatchResponse]
+
+// Watch_ServiceDesc is the grpc.ServiceDesc for Watch service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var Watch_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "etcdlite.v1.Watch",
+	HandlerType: (*WatchServer)(nil),
+	Methods:     []grpc.MethodDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Watch",
+			Handler:       _Watch_Watch_Handler,
+			ServerStreams: true,
+		},
+	},
+	Metadata: "etcdlite.proto",
+}
+
+const (
+	Lease_LeaseGrant_FullMethodName     = "/etcdlite.v1.Lease/LeaseGrant"
+	Lease_LeaseKeepAlive_FullMethodName = "/etcdlite.v1.Lease/LeaseKeepAlive"
+	Lease_LeaseRevoke_FullMethodName    = "/etcdlite.v1.Lease/LeaseRevoke"
+)
+
+// LeaseClient is the client API for Lease service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type LeaseClient interface {
+	LeaseGrant(ctx context.Context, in *LeaseGrantRequest, opts ...grpc.CallOption) (*LeaseGrantResponse, error)
+	LeaseKeepAlive(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[LeaseKeepAliveRequest, LeaseKeepAliveResponse], error)
+	LeaseRevoke(ctx context.Context, in *LeaseRevokeRequest, opts ...grpc.CallOption) (*LeaseRevokeResponse, error)
+}
+
+type leaseClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewLeaseClient(cc grpc.ClientConnInterface) LeaseClient {
+	return &leaseClient{cc}
+}
+
+func (c *leaseClient) LeaseGrant(ctx context.Context, in *LeaseGrantRequest, opts ...grpc.CallOption) (*LeaseGrantResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LeaseGrantResponse)
+	err := c.cc.Invoke(ctx, Lease_LeaseGrant_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *leaseClient) LeaseKeepAlive(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[LeaseKeepAliveRequest, LeaseKeepAliveResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &Lease_ServiceDesc.Streams[0], Lease_LeaseKeepAlive_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[LeaseKeepAliveRequest, LeaseKeepAliveResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Lease_LeaseKeepAliveClient = grpc.BidiStreamingClient[LeaseKeepAliveRequest, LeaseKeepAliveResponse]
+
+func (c *leaseClient) LeaseRevoke(ctx context.Context, in *LeaseRevokeRequest, opts ...grpc.CallOption) (*LeaseRevokeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LeaseRevokeResponse)
+	err := c.cc.Invoke(ctx, Lease_LeaseRevoke_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// LeaseServer is the server API for Lease service.
+// All implementations must embed UnimplementedLeaseServer
+// for forward compatibility.
+type LeaseServer interface {
+	LeaseGrant(context.Context, *LeaseGrantRequest) (*LeaseGrantResponse, error)
+	LeaseKeepAlive(grpc.BidiStreamingServer[LeaseKeepAliveRequest, LeaseKeepAliveResponse]) error
+	LeaseRevoke(context.Context, *LeaseRevokeRequest) (*LeaseRevokeResponse, error)
+	mustEmbedUnimplementedLeaseServer()
+}
+
+// UnimplementedLeaseServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedLeaseServer struct{}
+
+func (UnimplementedLeaseServer) LeaseGrant(context.Context, *LeaseGrantRequest) (*LeaseGrantResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LeaseGrant not implemented")
+}
+func (UnimplementedLeaseServer) LeaseKeepAlive(grpc.BidiStreamingServer[LeaseKeepAliveRequest, LeaseKeepAliveResponse]) error {
+	return status.Error(codes.Unimplemented, "method LeaseKeepAlive not implemented")
+}
+func (UnimplementedLeaseServer) LeaseRevoke(context.Context, *LeaseRevokeRequest) (*LeaseRevokeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LeaseRevoke not implemented")
+}
+func (UnimplementedLeaseServer) mustEmbedUnimplementedLeaseServer() {}
+func (UnimplementedLeaseServer) testEmbeddedByValue()               {}
+
+// UnsafeLeaseServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to LeaseServer will
+// result in compilation errors.
+type UnsafeLeaseServer interface {
+	mustEmbedUnimplementedLeaseServer()
+}
+
+func RegisterLeaseServer(s grpc.ServiceRegistrar, srv LeaseServer) {
+	// If the following call panics, it indicates UnimplementedLeaseServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&Lease_ServiceDesc, srv)
+}
+
+func _Lease_LeaseGrant_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LeaseGrantRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LeaseServer).LeaseGrant(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Lease_LeaseGrant_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LeaseServer).LeaseGrant(ctx, req.(*LeaseGrantRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Lease_LeaseKeepAlive_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(LeaseServer).LeaseKeepAlive(&grpc.GenericServerStream[LeaseKeepAliveRequest, LeaseKeepAliveResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Lease_LeaseKeepAliveServer = grpc.BidiStreamingServer[LeaseKeepAliveRequest, LeaseKeepAliveResponse]
+
+func _Lease_LeaseRevoke_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LeaseRevokeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LeaseServer).LeaseRevoke(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Lease_LeaseRevoke_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LeaseServer).LeaseRevoke(ctx, req.(*LeaseRevokeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// Lease_ServiceDesc is the grpc.ServiceDesc for Lease service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var Lease_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "etcdlite.v1.Lease",
+	HandlerType: (*LeaseServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "LeaseGrant",
+			Handler:    _Lease_LeaseGrant_Handler,
+		},
+		{
+			MethodName: "LeaseRevoke",
+			Handler:    _Lease_LeaseRevoke_Handler,
+		},
+	},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "LeaseKeepAlive",
+			Handler:       _Lease_LeaseKeepAlive_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+	},
+	Metadata: "etcdlite.proto",
+}
+
+const (
 	Maintenance_Status_FullMethodName = "/etcdlite.v1.Maintenance/Status"
 )
 
