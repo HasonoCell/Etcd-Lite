@@ -94,16 +94,13 @@ func (h *Hub) Publish(events []mvcc.Event) {
 		return
 	}
 
-	// 复制 watchers
+	// 在持有 hub 锁时完成匹配和非阻塞投递，避免 unregister 并发关闭
+	// channel 后，Publish 仍然向已关闭的 channel 发送数据。
 	h.mu.Lock()
-	watchers := make([]*Watcher, 0, len(h.watchers))
-	for _, watcher := range h.watchers {
-		watchers = append(watchers, watcher)
-	}
-	h.mu.Unlock()
+	defer h.mu.Unlock()
 
-	// 遍历每个 watcher，看 events 中的事件和 watcher 能否匹配
-	for _, watcher := range watchers {
+	// 遍历每个 watcher，看 events 中的事件和 watcher 能否匹配。
+	for _, watcher := range h.watchers {
 		matched := matchEvents(watcher, events)
 		if len(matched) == 0 {
 			continue
@@ -116,8 +113,24 @@ func (h *Hub) Publish(events []mvcc.Event) {
 		select {
 		case watcher.ch <- batch:
 		default:
+			// cancel 只负责触发异步 unregister；真正 close channel 会在释放
+			// hub 锁后进行，因此不会与当前投递相撞。
 			watcher.cancel()
 		}
+	}
+}
+
+// Close 取消并清理 Hub 中全部 watcher。服务停止时调用它可以让阻塞中的
+// Watch RPC 尽快退出，而不必等待客户端主动断开连接。
+func (h *Hub) Close() {
+	h.mu.Lock()
+	watchers := make([]*Watcher, 0, len(h.watchers))
+	for _, watcher := range h.watchers {
+		watchers = append(watchers, watcher)
+	}
+	h.mu.Unlock()
+	for _, watcher := range watchers {
+		watcher.cancel()
 	}
 }
 

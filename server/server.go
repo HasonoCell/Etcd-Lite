@@ -177,6 +177,7 @@ func (s *Server) Stop() {
 		return
 	default:
 		close(s.stopCh)
+		s.watchHub.Close()
 		s.raft.Stop()
 	}
 }

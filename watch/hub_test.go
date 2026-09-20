@@ -2,6 +2,7 @@ package watch
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -51,4 +52,55 @@ func TestHubClosesSlowWatcher(t *testing.T) {
 		}
 	}
 	t.Fatalf("slow watcher was not closed")
+}
+
+func TestHubCloseUnblocksWatcher(t *testing.T) {
+	hub := New(Config{BufferSize: 1})
+	watcher := hub.Register(context.Background(), []byte("/key"), nil, false)
+	hub.Close()
+
+	select {
+	case _, ok := <-watcher.Events():
+		if ok {
+			t.Fatalf("watcher channel is still open after hub close")
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("watcher was not closed by hub close")
+	}
+}
+
+func TestHubPublishAndCloseAreSafeConcurrently(t *testing.T) {
+	hub := New(Config{BufferSize: 4})
+	watcher := hub.Register(context.Background(), []byte("/key"), nil, false)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			hub.Publish([]mvcc.Event{{
+				Type:     mvcc.EventPut,
+				Revision: mvcc.Revision{Main: int64(i + 1)},
+				KV:       mvcc.KeyValue{Key: []byte("/key")},
+			}})
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		time.Sleep(time.Millisecond)
+		watcher.Close()
+	}()
+	wg.Wait()
+
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case _, ok := <-watcher.Events():
+			if !ok {
+				return
+			}
+		case <-deadline:
+			t.Fatalf("watcher cleanup did not complete")
+		}
+	}
 }
